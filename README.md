@@ -3,16 +3,17 @@ from tkinter import messagebox
 import math
 import random
 import sqlite3
-class BaseApp:
 
+class BaseApp:
     def __init__(self, main, user_id, title="", geometry="400x200"):
         self.window = ctk.CTkToplevel(main) if main != None else ctk.CTk()
         self.window.title(title)
-        self.window.geometry(geometry)
+        self.window.geometry(geometry)  
         self.window.configure(fg_color="#96c4df")
         self.userid = user_id
+        self.db_manager = Database()
 
-        self.label = ctk.CTkLabel(self.window, text=title, fg_color="#96c4df", 
+        self.label = ctk.CTkLabel(self.window, text=title, fg_color="#96c4df",
                                  text_color="#333333", font=("Helvetica", 20))
         self.label.pack(pady=20)
 
@@ -21,40 +22,50 @@ class BaseApp:
         self.mainmenu = MainMenu(self.window.master, self.userid)
         self.mainmenu.window.deiconify()
 
-
-
-
-def conversion(password):
-    hashvalue = 0
-    prime = 31
-    salt = 123456789  # Using a static salt to enhance the uniqueness
-
-    for i, char in enumerate(password):
-        # XOR each character's ASCII with the salt and shift by the index
-        hashvalue = (hashvalue ^ (ord(char) * prime + salt)) << (i % 5)  # Bitwise shift to make it more complex
-        hashvalue = hashvalue & 0xFFFFFFFFFFFFFFFF  # Keep hash within 64-bit range
-
-    # Add some letters for even more complexity
-    alphabet = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
-    hashstr = str(hashvalue)
-    for i in range(5):  # Add random letters to the end
-        hashstr += alphabet[(int(hashvalue) + i) % len(alphabet)]
-
-    return hashstr  # Return as stringhash value instead of the function itself
-
-
-# Create or connect to the database
-def logindata_db():
-    conn = None
-    try:
-        conn = sqlite3.connect('user_login.db')
-        if not conn:
-            raise Exception("Failed to establish database connection")
-
-        cursor = conn.cursor()
-
-        # Create users table for authentication
+    def getuserdata(self):
         try:
+            with sqlite3.connect(self.db_manager.db_name) as conn:
+                cursor = conn.cursor()
+                cursor.execute('''
+                    SELECT u.username, p.* 
+                    FROM users u
+                    JOIN player_data p ON u.id = p.user_id
+                    WHERE u.id = ?''', (self.userid,))
+                return cursor.fetchone()
+        except sqlite3.Error as e:
+            print(f"Database error: {e}")
+            return None
+
+class Database:
+    def __init__(self):
+        self.db_name = 'user_login.db'
+
+    @staticmethod
+    def conversion(password):
+        hashvalue = 0
+        prime = 31
+        salt = 123456789
+
+        for i, char in enumerate(password):
+            hashvalue = (hashvalue ^ (ord(char) * prime + salt)) << (i % 5)
+            hashvalue = hashvalue & 0xFFFFFFFFFFFFFFFF
+
+        alphabet = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+        hashstr = str(hashvalue)
+        for i in range(5):
+            hashstr += alphabet[(int(hashvalue) + i) % len(alphabet)]
+
+        return hashstr
+
+    def initialize_db(self):
+        conn = None
+        try:
+            conn = sqlite3.connect(self.db_name)
+            if not conn:
+                raise Exception("Failed to establish database connection")
+
+            cursor = conn.cursor()
+
             cursor.execute('''
             CREATE TABLE IF NOT EXISTS users (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -62,281 +73,210 @@ def logindata_db():
                 password TEXT NOT NULL
             )
             ''')
-        except sqlite3.OperationalError as e:
-            print(f"Error creating users table: {e}")
-            raise
 
-        # Create player_data table for game data
-        try:
             cursor.execute('''
             CREATE TABLE IF NOT EXISTS player_data (
                 user_id INTEGER PRIMARY KEY,
                 chero TEXT,
                 celement TEXT,
-                chealth TEXT, 
-                cstrenght TEXT,
+                chealth TEXT DEFAULT '100', 
+                cstrenght TEXT DEFAULT '5',
                 hrarity TEXT,
                 cweapon TEXT,
                 cweapontype TEXT,
-                cweapondamage TEXT,
+                cweapondamage TEXT DEFAULT '5',
                 cweaponabilitiy TEXT,
                 wrarity TEXT,
                 level INTEGER DEFAULT 1,
-                currenthealth TEXT,
-                currentdamage TEXT,
+                currenthealth TEXT DEFAULT '100',
+                currentdamage TEXT DEFAULT '25',
                 gold INTEGER DEFAULT 0,
                 FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
             )
             ''')
 
-        except sqlite3.OperationalError as e:
-            print(f"Error creating player_data table: {e}")
-            raise
+            conn.commit()
 
-        conn.commit()
-
-
-    except sqlite3.Error as e:
-        print(f"SQLite error during database initialization: {str(e)}")
-        if conn:
-            conn.rollback()
-        raise
-    except Exception as e:
-        print(f"Unexpected error during database initialization: {str(e)}")
-        if conn:
-            conn.rollback()
-        raise
-    finally:
-        if conn:
-            try:
+        except Exception as e:
+            print(f"Database initialization error: {e}")
+            if conn:
+                conn.rollback()
+        finally:
+            if conn:
                 conn.close()
-            except Exception as e:
-                print(f"Error closing database connection: {str(e)}")
 
+    def set_current_health(self, user_id, healthvalue):
+        self.updatedb('currenthealth', healthvalue, user_id)
 
-def setcurrenthealth(user_id, healthvalue):
-    try:
-        with sqlite3.connect('user_login.db') as conn:
-            cursor = conn.cursor()
-            cursor.execute('UPDATE player_data SET currenthealth = ? WHERE user_id = ?', (healthvalue, user_id))
-            conn.commit()
-    except sqlite3.Error as e:
-        print(f"Database error: {e}")
+    def set_current_damage(self, user_id, damagevalue):
+        self.updatedb('currentdamage', damagevalue, user_id)
 
+    def set_hero(self, heroname, user_id):
+        self.updatedb('chero', heroname, user_id)
 
-def setcurrentdamage(user_id, damagevalue):
-    try:
-        with sqlite3.connect('user_login.db') as conn:
-            cursor = conn.cursor()
-            cursor.execute('UPDATE player_data SET currentdamage = ? WHERE user_id = ?', (damagevalue, user_id))
-            conn.commit()
-    except sqlite3.Error as e:
-        print(f"Database error: {e}")
+    def set_element(self, elementname, user_id):
+        self.updatedb('celement', elementname, user_id)
 
+    def set_health(self, healthvalue, user_id):
+        self.updatedb('chealth', healthvalue, user_id)
 
-def setchero(heroname, user_id):
-    try:
-        with sqlite3.connect('user_login.db') as conn:
-            cursor = conn.cursor()
-            cursor.execute('UPDATE player_data SET chero = ? WHERE user_id = ?', (heroname, user_id))
-            conn.commit()
-    except sqlite3.Error as e:
-        print(f"Database error: {e}")
+    def set_strength(self, strengthvalue, user_id):
+        self.updatedb('cstrenght', strengthvalue, user_id)
 
+    def set_hero_rarity(self, herorarity, user_id):
+        self.updatedb('hrarity', herorarity, user_id)
 
-def setcelement(elementname, user_id):
-    try:
-        with sqlite3.connect('user_login.db') as conn:
-            cursor = conn.cursor()
-            cursor.execute('UPDATE player_data SET celement = ? WHERE user_id = ?', (elementname, user_id))
-            conn.commit()
-    except sqlite3.Error as e:
-        print(f"Database error: {e}")
+    def set_weapon(self, weaponname, user_id):
+        self.updatedb('cweapon', weaponname, user_id)
 
+    def set_weapon_type(self, weapontype, user_id):
+        self.updatedb('cweapontype', weapontype, user_id)
 
-def setchealth(healthvalue, user_id):
-    try:
-        with sqlite3.connect('user_login.db') as conn:
-            cursor = conn.cursor()
-            cursor.execute('UPDATE player_data SET chealth = ? WHERE user_id = ?', (healthvalue, user_id))
-            conn.commit()
-    except sqlite3.Error as e:
-        print(f"Database error: {e}")
+    def set_weapon_damage(self, weapondamage, user_id):
+        self.updatedb('cweapondamage', weapondamage, user_id)
 
+    def set_weapon_ability(self, weaponability, user_id):
+        self.updatedb('cweaponabilitiy', weaponability, user_id)
 
-def setcstrenght(strengthvalue, user_id):
-    try:
-        with sqlite3.connect('user_login.db') as conn:
-            cursor = conn.cursor()
-            cursor.execute('UPDATE player_data SET cstrenght = ? WHERE user_id = ?', (strengthvalue, user_id))
-            conn.commit()
-    except sqlite3.Error as e:
-        print(f"Database error: {e}")
+    def set_weapon_rarity(self, weaponrarity, user_id):
+        self.updatedb('wrarity', weaponrarity, user_id)
 
+    def updatedb(self, field, value, user_id):
+        try:
+            with sqlite3.connect(self.db_name) as conn:
+                cursor = conn.cursor()
+                cursor.execute(f'UPDATE player_data SET {field} = ? WHERE user_id = ?', (value, user_id))
+                conn.commit()
+        except sqlite3.Error as e:
+            print(f"Database error: {e}")
 
-def sethrarity(herorarity, user_id):
-    try:
-        with sqlite3.connect('user_login.db') as conn:
-            cursor = conn.cursor()
-            cursor.execute('UPDATE player_data SET hrarity = ? WHERE user_id = ?', (herorarity, user_id))
-            conn.commit()
-    except sqlite3.Error as e:
-        print(f"Database error: {e}")
+    def get_summon(self, user_id):
+        try:
+            with sqlite3.connect(self.db_name) as conn:
+                cursor = conn.cursor()
+                cursor.execute('''
+                    SELECT chero, celement, chealth, cstrenght, hrarity, cweapon, 
+                           cweapontype, cweapondamage, cweaponabilitiy, wrarity 
+                    FROM player_data 
+                    WHERE user_id = ?''', (user_id,))
+                return cursor.fetchone()
+        except sqlite3.Error as e:
+            print(f"Database error: {e}")
+            return None
 
+    @staticmethod
+    def calculate_health(level, chealth, element):
+        healthincrementperlevel = 20
+        element_multipliers = {
+            "Fire": 1.1, "Water": 1.2, "Earth": 1.3, "Wind": 1.0,
+            "Electric": 1.15, "Ice": 1.25, "Light": 1.2, "Dark": 1.1
+        }
+        multiplier = element_multipliers.get(element, 1.0)
+        return int(chealth + (healthincrementperlevel * level) * multiplier)
 
-def setcweapon(weaponname, user_id):
-    try:
-        with sqlite3.connect('user_login.db') as conn:
-            cursor = conn.cursor()
-            cursor.execute('UPDATE player_data SET cweapon = ? WHERE user_id = ?', (weaponname, user_id))
-            conn.commit()
-    except sqlite3.Error as e:
-        print(f"Database error: {e}")
+    def check_db_data(self):
+        try:
+            with sqlite3.connect(self.db_name) as conn:
+                cursor = conn.cursor()
+                cursor.execute('SELECT * FROM users')
+                data = cursor.fetchall()
+                print("Current users in database:", data)
+        except sqlite3.Error as e:
+            print(f"Database error: {e}")
 
+    def get_user_id(self, username):
+        try:
+            with sqlite3.connect(self.db_name) as conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT id FROM users WHERE username = ?", (username,))
+                result = cursor.fetchone()
+                return result[0] if result else None
+        except sqlite3.Error as e:
+            print(f"Database error: {e}")
+            return None
 
-def setcweapontype(weapontype, user_id):
-    try:
-        with sqlite3.connect('user_login.db') as conn:
-            cursor = conn.cursor()
-            cursor.execute('UPDATE player_data SET cweapontype = ? WHERE user_id = ?', (weapontype, user_id))
-            conn.commit()
-    except sqlite3.Error as e:
-        print(f"Database error: {e}")
+    def delete_tables(self):
+        try:
+            with sqlite3.connect(self.db_name) as conn:
+                cursor = conn.cursor()
+                cursor.execute('DROP TABLE IF EXISTS player_data')
+                cursor.execute('DROP TABLE IF EXISTS users')
+                conn.commit()
+        except sqlite3.Error as e:
+            print(f"Database error: {e}")
+            
+    def get_summon(self, user_id):
+        try:
+            with sqlite3.connect(self.db_name) as conn:
+                cursor = conn.cursor()
+                cursor.execute('''
+                    SELECT chero, celement, chealth, cstrenght, hrarity, cweapon, 
+                           cweapontype, cweapondamage, cweaponabilitiy, wrarity 
+                    FROM player_data 
+                    WHERE user_id = ?''', (user_id,))
+                return cursor.fetchone()
+        except sqlite3.Error as e:
+            print(f"Database error: {e}")
+            return None
 
+    def set_level(self, user_id, level):
+        self.updatedb('level', level, user_id)
 
-def setcweapondamage(weapondamage, user_id):
-    try:
-        with sqlite3.connect('user_login.db') as conn:
-            cursor = conn.cursor()
-            cursor.execute('UPDATE player_data SET cweapondamage = ? WHERE user_id = ?', (weapondamage, user_id))
-            conn.commit()
-    except sqlite3.Error as e:
-        print(f"Database error: {e}")
+    @staticmethod
+    def calculate_ability_damage(basedamage):
+        return basedamage * 25
 
+    @staticmethod
+    def calculatehealth(level, basehealth, element):
+        try:
+            # Convert inputs to appropriate types
+            level = int(level) if level else 1
+            basehealth = int(basehealth) if basehealth and str(basehealth).isdigit() else 100
 
-def setcweaponability(weaponability, user_id):
-    try:
-        with sqlite3.connect('user_login.db') as conn:
-            cursor = conn.cursor()
-            cursor.execute('UPDATE player_data SET cweaponabilitiy = ? WHERE user_id = ?', (weaponability, user_id))
-            conn.commit()
-    except sqlite3.Error as e:
-        print(f"Database error: {e}")
+            # Base health scaling with level
+            healthscaling = 1 + (level * 0.1)  # 10% increase per level
+            scaledhealth = basehealth * healthscaling
 
+            # Element bonuses
+            elementmultipliers = {
+                "Fire": 1.1,    # Fire gets 10% more health
+                "Water": 1.2,   # Water gets 20% more health
+                "Earth": 1.3,   # Earth gets 30% more health
+                "Wind": 1.0,    # Wind no bonus
+                "Electric": 1.15,  # Electric gets 15% more health
+                "Ice": 1.25,    # Ice gets 25% more health
+                "Light": 1.2,   # Light gets 20% more health
+                "Dark": 1.1     # Dark gets 10% more health
+            }
 
-def setwrarity(weaponrarity, user_id):
-    try:
-        with sqlite3.connect('user_login.db') as conn:
-            cursor = conn.cursor()
-            cursor.execute('UPDATE player_data SET wrarity = ? WHERE user_id = ?', (weaponrarity, user_id))
-            conn.commit()
-    except sqlite3.Error as e:
-        print(f"Database error: {e}")
+            # Apply element multiplier if element exists
+            multiplier = elementmultipliers.get(element, 1.0)
+            finalhealth = int(scaledhealth * multiplier)
 
+            # Ensure minimum health of 100
+            return max(100, finalhealth)
 
-def getcsummon(user_id):
-    conn = sqlite3.connect('user_login.db')
-    cursor = conn.cursor()
-    cursor.execute('''
-        SELECT chero, celement, chealth, cstrenght, hrarity, cweapon, cweapontype, cweapondamage, cweaponabilitiy, wrarity 
-        FROM player_data 
-        WHERE user_id = ?''',
-        (user_id,))
-    result = cursor.fetchone()
-    conn.close()
-    if result:
-        return result  # Returns a tuple with hero, element, hero rarity, weapon, weapon type, weapon rarity
-    return None
+        except Exception as e:
+            print(f"Health calculation error: {str(e)}")
+            return 100  # Return default health on error
 
+    
 
-def calculatehealth(level, chealth, element):
-    healthincrementperlevel = 20
-    element_multipliers = {
-        "Fire": 1.1,
-        "Water": 1.2,
-        "Earth": 1.3,
-        "Wind": 1.0,
-        "Electric": 1.15,
-        "Ice": 1.25,
-        "Light": 1.2,
-        "Dark": 1.1
-    }
-    multiplier = element_multipliers.get(element, 1.0)
-    return int(chealth + (healthincrementperlevel * level) * multiplier)
+    def update_gold(self, user_id, amount):
+        try:
+            with sqlite3.connect(self.db_name) as conn:
+                cursor = conn.cursor()
+                cursor.execute('UPDATE player_data SET gold = gold + ? WHERE user_id = ?', 
+                             (amount, user_id))
+                conn.commit()
+                cursor.execute('SELECT gold FROM player_data WHERE user_id = ?', (user_id,))
+                return cursor.fetchone()[0]
+        except sqlite3.Error as e:
+            print(f"Database error: {e}")
+            return None
 
-
-def check_db_data():
-    conn = sqlite3.connect('user_login.db')
-    cursor = conn.cursor()
-    cursor.execute('SELECT * FROM users')
-    data = cursor.fetchall()
-    print("Current users in database:", data)
-    conn.close()
-
-
-def getuser_id(username):
-    conn = sqlite3.connect('user_login.db')
-    cursor = conn.cursor()
-    cursor.execute("SELECT id FROM users WHERE username = ?", (username,))
-    result = cursor.fetchone()
-    conn.close()
-    if result:
-        return result[0]
-    return None
-
-
-def deleter():
-    conn = sqlite3.connect('user_login.db')
-    cursor = conn.cursor()
-    cursor.execute('DROP TABLE IF EXISTS player_data')
-    cursor.execute('DROP TABLE IF EXISTS users')
-    conn.commit()
-    conn.close()
-
-
-def setlevel(user_id, level):
-    try:
-        with sqlite3.connect('user_login.db') as conn:
-            cursor = conn.cursor()
-            cursor.execute('UPDATE player_data SET level = ? WHERE user_id = ?', (level, user_id))
-            conn.commit()
-    except sqlite3.Error as e:
-        print(f"Database error: {e}")
-
-
-def calculateabilitydamage(basedamage):
-    return basedamage * 25
-
-
-def getelementbonus(attacker_element, defender_element):
-    elementbonus = {
-        "Fire": "Ice",
-        "Water": "Fire",
-        "Earth": "Electric",
-        "Wind": "Earth",
-        "Electric": "Water",
-        "Ice": "Wind",
-        "Light": "Dark",
-        "Dark": "Light"
-    }
-    if elementbonus.get(attacker_element) == defender_element:
-        return 1.2  # 20% more damage
-    return 1.0
-
-def update_gold(user_id, amount):
-  try:
-      with sqlite3.connect('user_login.db') as conn:
-          cursor = conn.cursor()
-          cursor.execute('UPDATE player_data SET gold = gold + ? WHERE user_id = ?', (amount, user_id))
-          conn.commit()
-
-          # Get new gold amount
-          cursor.execute('SELECT gold FROM player_data WHERE user_id = ?', (user_id,))
-          new_gold = cursor.fetchone()[0]
-          return new_gold
-  except sqlite3.Error as e:
-      print(f"Database error: {e}")
-      return None
+# Create a global instance of Database
+db_manager = Database()
 
 class Entrance(BaseApp):
     def __init__(self, main, user_id):
@@ -418,7 +358,7 @@ class LoginMenu(BaseApp):
                 if row is not None:
                     self.userid, storedhashedvalue = row
                     try:
-                        hashedpassword = conversion(password)
+                        hashedpassword = Database.conversion(password)
                         print(f"User ID: {self.userid}")
                         print(f"Username: {username}")
                         print("Password hashing completed")
@@ -529,7 +469,7 @@ class RegisterMenu(BaseApp):
             if cursor.fetchone():
                 messagebox.showerror("Username already exists!")
             else:
-                hashedpassword = conversion(password)  # Hash the password before storing
+                hashedpassword = Database.conversion(password)  # Hash the password before storing
                 # Insert into users table
                 # Insert into users table
                 cursor.execute('INSERT INTO users (username, password) VALUES (?, ?)',
@@ -1154,9 +1094,9 @@ class Settings(BaseApp):
             damage_result = cursor.fetchone()
             if damage_result:
                 strength, weapon_damage = damage_result
-                strength = int(strength) if strength and strength != 'None' else 10
-                weapon_damage = int(weapon_damage) if weapon_damage and weapon_damage != 'None' else 10
-                base_damage = strength * weapon_damage
+                strength = int(strength) if strength and strength != 'None' else 5
+                weapon_damage = int(weapon_damage) if weapon_damage and weapon_damage != 'None' else 5
+                base_damage = max(25, strength * weapon_damage)  # Ensure minimum base damage of 25
                 self.base_damage_label = ctk.CTkLabel(self.window, text=f"Base Damage: {base_damage}", 
                                                     fg_color="#96c4df", text_color="#333333", font=("Arial", 15))
                 self.base_damage_label.pack(pady=10)
@@ -1282,7 +1222,7 @@ class Users(BaseApp):
         self.leaderboard_window.title("Leaderboard")
         self.leaderboard_window.geometry("400x600")
         self.leaderboard_window.configure(fg_color="#96c4df")
-        
+
         # Handle window close event
         self.leaderboard_window.protocol("WM_DELETE_WINDOW", self.close_leaderboard)
 
@@ -1290,7 +1230,7 @@ class Users(BaseApp):
         button_frame = ctk.CTkFrame(self.leaderboard_window, fg_color="#96c4df")
         button_frame.pack(pady=10)
 
-        
+
 
         # Create scrollable frame for leaderboard entries
         scrollable_frame = ctk.CTkScrollableFrame(self.leaderboard_window, width=350, height=450)
@@ -1313,7 +1253,7 @@ class Users(BaseApp):
 
         # Show damage leaderboard by default
         self.update_leaderboard("damage", scrollable_frame)
-        
+
         # Create return button at the bottom
         return_button = ctk.CTkButton(self.leaderboard_window, text="Return", fg_color="white", 
                                     hover_color="#a5cd9d", text_color="#333333", 
@@ -1559,12 +1499,12 @@ class SiegeMenu(BaseApp):
         if result:
             cstrenght, cweapondamage, level = result
             # Convert values to integers
-            cstrenght = int(cstrenght) if cstrenght else 0
-            cweapondamage = int(cweapondamage) if cweapondamage else 0
+            cstrenght = int(cstrenght) if cstrenght else 5
+            cweapondamage = int(cweapondamage) if cweapondamage else 5
             level = int(level) if level else 0
 
-            # Define the formula to calculate damage
-            basedamage = cstrenght * cweapondamage
+            # Define the formula to calculate damage with minimum base damage
+            basedamage = max(25, cstrenght * cweapondamage)  # Minimum base damage of 25 (5 * 5)
             levelscaling = (1 + (level ** 1.2) / 10)  # Exponential scaling with level
             randomfactor = random.uniform(0.9, 1.2)  # Adds randomness (90% - 120% of calculated value)
             criticalhit = 2 if random.random() < 0.1 else 1  # 10% chance to double damage
@@ -1621,13 +1561,16 @@ class SiegeMenu(BaseApp):
         result = cursor.fetchone()
         current_level = result[0] if result else 1
 
+        # Cap level for gold calculation to prevent overflow
+        capped_level = min(50, current_level)  # Cap at level 50 for gold calculation
+
         # Level up
         new_level = levelup(self.userid)
 
         if new_level:
-            # Calculate gold reward based on level
-            gold_reward = int(30 * (1.2 ** (current_level - 1)))  # Base reward for siege
-            siege_bonus = int(15 * (1.1 ** (current_level - 1)))  # Siege completion bonus
+            # Calculate gold reward based on capped level
+            gold_reward = int(30 * (1.2 ** (capped_level - 1)))  # Base reward for siege
+            siege_bonus = int(15 * (1.1 ** (capped_level - 1)))  # Siege completion bonus
             total_gold = gold_reward + siege_bonus
 
             # Update player's gold
@@ -1915,18 +1858,16 @@ class Battles(BaseApp):
         if result:
             userstrength, userweapondamage, userelement, level = map(str, result)
             level = int(level) if level else 1
-            userstrength = int(userstrength) if userstrength and userstrength != 'None' else 10
-            userweapondamage = int(userweapondamage) if userweapondamage and userweapondamage != 'None' else 10
-            basedamage = userstrength * userweapondamage
+            userstrength = int(userstrength) if userstrength and userstrength != 'None' else 5
+            userweapondamage = int(userweapondamage) if userweapondamage and userweapondamage != 'None' else 5
+            basedamage = max(25, userstrength * userweapondamage)  # Ensure minimum base damage of 25
 
             # Calculate full damage like in battle method
             levelscaling = (1 + (level ** 1.2) / 10)
             randomfactor = random.uniform(0.9, 1.2)
             criticalhit = 2 if random.random() < 0.1 else 1
-            elementbonus = getelementbonus(userelement, enemy["element"])
-
             # Calculate normal attack damage first
-            normaldamage = int(basedamage * levelscaling * randomfactor * criticalhit * elementbonus)
+            normaldamage = int(basedamage * levelscaling * randomfactor * criticalhit)
 
             # Multiply by 25 for ability damage
             finaldamage = normaldamage * 25
@@ -1968,6 +1909,15 @@ class Battles(BaseApp):
             self.window.destroy()
             self.questwindow.deiconify()
             return
+
+        enemy = self.enemies[self.currentenemy]
+        if self.userhealth <= 0:
+            messagebox.showerror("Defeat", "You lost the battle. Try again!")
+            self.window.destroy()
+            self.questwindow.deiconify()
+            return
+
+        self.battle(enemy)
 
     def close_leaderboard(self):
         self.leaderboard_window.destroy()
@@ -2026,12 +1976,12 @@ class Battles(BaseApp):
 
         if result:
             userstrength, userweapondamage, userelement, level = result
-            userstrength = int(userstrength) if userstrength and userstrength != 'None' else 10
-            userweapondamage = int(userweapondamage) if userweapondamage and userweapondamage != 'None' else 10
+            userstrength = int(userstrength) if userstrength and userstrength != 'None' else 5
+            userweapondamage = int(userweapondamage) if userweapondamage and userweapondamage != 'None' else 5
             level = int(level) if level is not None else 1
 
-            # Calculate base damage
-            basedamage = userstrength * userweapondamage
+            # Calculate base damage with minimum of 5 * 5 = 25
+            basedamage = max(25, userstrength * userweapondamage)
 
             # Apply level scaling
             levelscaling = (1 + (level ** 1.2) / 10)
@@ -2042,13 +1992,10 @@ class Battles(BaseApp):
             # Critical hit chance (10% chance to double damage)
             criticalhit = 2 if random.random() < 0.1 else 1
 
-            # Calculate element bonus
-            elementbonus = getelementbonus(userelement, enemy["element"])
-
             # Enhanced damage calculation with diminishing returns
             base_scaling = math.log(level + 1, 2) * 1.2  # Logarithmic scaling
             diminished_level = min(levelscaling, base_scaling)
-            userdamage = int(basedamage * diminished_level * randomfactor * criticalhit * elementbonus)
+            userdamage = int(basedamage * diminished_level * randomfactor * criticalhit)
             # Prevent extreme damage values
             userdamage = max(10, min(userdamage, enemy["max_health"] // 2))
 
@@ -2075,8 +2022,8 @@ class Battles(BaseApp):
                     self.userhealth = 0
                     print(f"Battle Lost! User {self.userid} was defeated")
                     messagebox.showerror("Defeat", "You lost the battle!")
-                    self.window.destroy()  # Close battle screen
-                    self.questwindow.deiconify()  # Show previous window
+                    self.window.destroy()
+                    Quest(self.questwindow, self.userid)  # Return to Quest menu
                     return
 
             self.updatehealthlabels()
@@ -2136,7 +2083,9 @@ class Battles(BaseApp):
             base_health = level * 10
             health_variance = random.randint(0, level * 5)
             enemyhealth = base_health + health_variance
-            enemydamage = max(1, level * 2 + random.randint(0, level))
+            base_damage = 5  # Base damage of 5
+            level_damage = level * 2 + random.randint(0, level)
+            enemydamage = max(base_damage, level_damage)
             enemyelement = random.choice(elements)
             enemies.append({
                 "health": enemyhealth,
@@ -2150,12 +2099,75 @@ class Battles(BaseApp):
         self.window.destroy()
         self.questwindow.deiconify()
 
-    # Create the main main window
+    # Helper functions for database operations
+def update_gold(user_id, amount):
+    db = Database()
+    return db.update_gold(user_id, amount)
 
+def setcurrentdamage(user_id, damage):
+    db = Database()
+    db.set_current_damage(user_id, damage)
+
+def setlevel(user_id, level):
+    db = Database()
+    db.set_level(user_id, level)
+
+def setchero(hero, user_id):
+    db = Database()
+    db.set_hero(hero, user_id)
+
+def setcelement(element, user_id):
+    db = Database()
+    db.set_element(element, user_id)
+
+def sethrarity(rarity, user_id):
+    db = Database()
+    db.set_hero_rarity(rarity, user_id)
+
+def setchealth(health, user_id):
+    db = Database()
+    db.set_health(health, user_id)
+
+def setcstrenght(strength, user_id):
+    db = Database()
+    db.set_strength(strength, user_id)
+
+def setcweapon(weapon, user_id):
+    db = Database()
+    db.set_weapon(weapon, user_id)
+
+def setcweapontype(weapon_type, user_id):
+    db = Database()
+    db.set_weapon_type(weapon_type, user_id)
+
+def setwrarity(rarity, user_id):
+    db = Database()
+    db.set_weapon_rarity(rarity, user_id)
+
+def setcweapondamage(damage, user_id):
+    db = Database()
+    db.set_weapon_damage(damage, user_id)
+
+def setcweaponability(ability, user_id):
+    db = Database()
+    db.set_weapon_ability(ability, user_id)
+
+def getcsummon(user_id):
+    db = Database()
+    return db.get_summon(user_id)
+
+def calculatehealth(level, basehealth, element):
+    db = Database()
+    return db.calculatehealth(level, basehealth, element)
+
+def logindata_db():
+    db = Database()
+    db.initialize_db()
 
 if __name__ == "__main__":
     logindata_db()
-    check_db_data()
+    db_manager = Database()
+    db_manager.check_db_data()
 
     main = None
     user_id = None
