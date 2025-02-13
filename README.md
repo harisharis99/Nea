@@ -95,6 +95,45 @@ class Database:
             )
             ''')
 
+            cursor.execute('''
+            CREATE TABLE IF NOT EXISTS hero_inventory (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER,
+                hero_name TEXT,
+                element TEXT,
+                health TEXT,
+                strength TEXT,
+                rarity TEXT,
+                equipped INTEGER DEFAULT 0,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            )
+            ''')
+
+            cursor.execute('''
+            CREATE TABLE IF NOT EXISTS weapon_inventory (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER,
+                weapon_name TEXT,
+                weapon_type TEXT,
+                damage TEXT,
+                ability TEXT,
+                rarity TEXT,
+                equipped INTEGER DEFAULT 0,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            )
+            ''')
+
+            cursor.execute('''
+            CREATE TABLE IF NOT EXISTS team_slots (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER,
+                slot_number INTEGER,
+                hero_id INTEGER,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+                FOREIGN KEY (hero_id) REFERENCES hero_inventory(id)
+            )
+            ''')
+
             conn.commit()
 
         except Exception as e:
@@ -204,7 +243,7 @@ class Database:
                 conn.commit()
         except sqlite3.Error as e:
             print(f"Database error: {e}")
-            
+
     def get_summon(self, user_id):
         try:
             with sqlite3.connect(self.db_name) as conn:
@@ -260,7 +299,107 @@ class Database:
             print(f"Health calculation error: {str(e)}")
             return 100  # Return default health on error
 
-    
+
+
+    def add_to_hero_inventory(self, user_id, hero_name, element, health, strength, rarity):
+        try:
+            with sqlite3.connect(self.db_name) as conn:
+                cursor = conn.cursor()
+                cursor.execute('''
+                    INSERT INTO hero_inventory (user_id, hero_name, element, health, strength, rarity)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                ''', (user_id, hero_name, element, health, strength, rarity))
+                conn.commit()
+        except sqlite3.Error as e:
+            print(f"Database error: {e}")
+
+    def add_to_weapon_inventory(self, user_id, weapon_name, weapon_type, damage, ability, rarity):
+        try:
+            with sqlite3.connect(self.db_name) as conn:
+                cursor = conn.cursor()
+                cursor.execute('''
+                    INSERT INTO weapon_inventory (user_id, weapon_name, weapon_type, damage, ability, rarity)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                ''', (user_id, weapon_name, weapon_type, damage, ability, rarity))
+                conn.commit()
+        except sqlite3.Error as e:
+            print(f"Database error: {e}")
+
+    def equip_hero(self, user_id, hero_id):
+        try:
+            with sqlite3.connect(self.db_name) as conn:
+                cursor = conn.cursor()
+                # Unequip all heroes
+                cursor.execute('UPDATE hero_inventory SET equipped = 0 WHERE user_id = ?', (user_id,))
+                # Equip selected hero
+                cursor.execute('UPDATE hero_inventory SET equipped = 1 WHERE id = ? AND user_id = ?', (hero_id, user_id))
+                # Get hero details
+                cursor.execute('''
+                    SELECT hero_name, element, health, strength, rarity 
+                    FROM hero_inventory WHERE id = ? AND user_id = ?
+                ''', (hero_id, user_id))
+                hero = cursor.fetchone()
+                if hero:
+                    # Update player_data
+                    cursor.execute('''
+                        UPDATE player_data 
+                        SET chero = ?, celement = ?, chealth = ?, cstrenght = ?, hrarity = ?
+                        WHERE user_id = ?
+                    ''', (*hero, user_id))
+                conn.commit()
+        except sqlite3.Error as e:
+            print(f"Database error: {e}")
+
+    def equip_weapon(self, user_id, weapon_id):
+        try:
+            with sqlite3.connect(self.db_name) as conn:
+                cursor = conn.cursor()
+                # Unequip all weapons
+                cursor.execute('UPDATE weapon_inventory SET equipped = 0 WHERE user_id = ?', (user_id,))
+                # Equip selected weapon
+                cursor.execute('UPDATE weapon_inventory SET equipped = 1 WHERE id = ? AND user_id = ?', (weapon_id, user_id))
+                # Get weapon details
+                cursor.execute('''
+                    SELECT weapon_name, weapon_type, damage, ability, rarity 
+                    FROM weapon_inventory WHERE id = ? AND user_id = ?
+                ''', (weapon_id, user_id))
+                weapon = cursor.fetchone()
+                if weapon:
+                    # Update player_data
+                    cursor.execute('''
+                        UPDATE player_data 
+                        SET cweapon = ?, cweapontype = ?, cweapondamage = ?, cweaponabilitiy = ?, wrarity = ?
+                        WHERE user_id = ?
+                    ''', (*weapon, user_id))
+                conn.commit()
+        except sqlite3.Error as e:
+            print(f"Database error: {e}")
+
+    def get_hero_inventory(self, user_id):
+        try:
+            with sqlite3.connect(self.db_name) as conn:
+                cursor = conn.cursor()
+                cursor.execute('''
+                    SELECT id, hero_name, element, health, strength, rarity, equipped
+                    FROM hero_inventory WHERE user_id = ?
+                ''', (user_id,))
+                return cursor.fetchall()
+        except sqlite3.Error as e:
+            print(f"Database error: {e}")
+            return []
+
+    def get_weapon_inventory(self, user_id):
+        try:
+            with sqlite3.connect(self.db_name) as conn:
+                cursor = conn.cursor()
+                cursor.execute('''
+                    SELECT id, weapon_name, weapon_type, damage, ability, rarity, equipped
+                    FROM weapon_inventory WHERE user_id = ?
+                ''', (user_id,))
+                return cursor.fetchall()
+        except sqlite3.Error as e:
+            print(f"Database error: {e}")
+            return []
 
     def update_gold(self, user_id, amount):
         try:
@@ -524,6 +663,7 @@ class MainMenu(BaseApp):
         self.user = ctk.CTkButton(self.window, text="User", fg_color="white", hover_color="#a5cd9d", text_color="#333333",
                                   font=("Arial", 15), command=self.openusers)
         self.user.pack(pady=20)
+
         self.user.place(x=220, y=140)
 
     def openbattle(self):
@@ -541,6 +681,10 @@ class MainMenu(BaseApp):
     def openusers(self):
         self.window.withdraw()
         self.users = Users(self.window, self.userid)
+
+    def openinventory(self):
+        self.window.withdraw()
+        self.inventory = Inventory(self.window, self.userid)
 
 
 class Modmenu(BaseApp):
@@ -750,6 +894,10 @@ class Summoning(BaseApp):
         self.abilityresult = ctk.CTkLabel(right_frame, text="", fg_color="#96c4df", font=("Arial", 15))
         self.abilityresult.pack(pady=5)
 
+        self.inventory = ctk.CTkButton(self.window, text="Inventory", fg_color="white", hover_color="#a5cd9d",
+                                      text_color="#333333", font=("Arial", 15), command=self.openinventory)
+        self.inventory.pack(pady=20)
+
         self.back = ctk.CTkButton(self.window, text="Return to main menu", fg_color="white", hover_color="#a5cd9d",
                                   text_color="#333333", font=("Arial", 15), command=self.backtomainmenu)
         self.back.pack(pady=20)
@@ -894,6 +1042,109 @@ class Summoning(BaseApp):
         # Update display with current hero and weapon info
         self.updatedisplay()
 
+    def summonhero(self):
+        # Check if player has enough gold
+        conn = sqlite3.connect('user_login.db')
+        cursor = conn.cursor()
+        cursor.execute('SELECT gold FROM player_data WHERE user_id = ?', (self.userid,))
+        current_gold = cursor.fetchone()[0]
+
+        if current_gold < 10000:
+            messagebox.showerror("Not Enough Gold", "Summoning requires 10,000 gold!")
+            conn.close()
+            return
+
+        # Deduct gold and proceed with summon
+        cursor.execute('UPDATE player_data SET gold = gold - 10000 WHERE user_id = ?', (self.userid,))
+        conn.commit()
+        conn.close()
+
+        result = random.choices(self.hero, weights=self.heroprob, k=1)[0]
+        element = self.heroelements[result]
+        health = self.herohealth[result]
+        strength = self.herostrenth[result]
+        prob = self.heroprob[self.hero.index(result)]
+        hrarity = self.rarity(prob)
+        
+        # Check if hero already exists in inventory
+        with sqlite3.connect('user_login.db') as conn:
+            cursor = conn.cursor()
+            cursor.execute('SELECT id FROM hero_inventory WHERE user_id = ? AND hero_name = ?', 
+                         (self.userid, result))
+            if cursor.fetchone():
+                return
+            
+        # Add hero to inventory and auto-equip it
+        self.db_manager.add_to_hero_inventory(self.userid, result, element, health, strength, hrarity)
+        with sqlite3.connect('user_login.db') as conn:
+            cursor = conn.cursor()
+            cursor.execute('SELECT MAX(id) FROM hero_inventory WHERE user_id = ?', (self.userid,))
+            latest_hero_id = cursor.fetchone()[0]
+            if latest_hero_id:
+                self.db_manager.equip_hero(self.userid, latest_hero_id)
+        
+        self.heroresult.configure(text=f"{result}", text_color=hrarity)
+        self.elementresult.configure(text=f"Element: {element}", text_color=hrarity)
+        self.healthresult.configure(text=f"Health: {health}", text_color=hrarity)
+        self.strenthgresult.configure(text=f"Strength: {strength}", text_color=hrarity)
+
+        if prob == 1:
+            self.spinconformation(self.summonhero)
+
+    def summonweapon(self):
+        # Check if player has enough gold
+        conn = sqlite3.connect('user_login.db')
+        cursor = conn.cursor()
+        cursor.execute('SELECT gold FROM player_data WHERE user_id = ?', (self.userid,))
+        current_gold = cursor.fetchone()[0]
+
+        if current_gold < 10000:
+            messagebox.showerror("Not Enough Gold", "Summoning requires 10,000 gold!")
+            conn.close()
+            return
+
+        # Deduct gold and proceed with summon
+        cursor.execute('UPDATE player_data SET gold = gold - 10000 WHERE user_id = ?', (self.userid,))
+        conn.commit()
+        conn.close()
+
+        result = random.choices(self.weapons, weights=self.weaponprob, k=1)[0]
+        weapontype = self.weapontypes[result]
+        weapondamage = self.weapondmg[result]
+        weaponability = self.weaponabilities[result]
+        prob = self.weaponprob[self.weapons.index(result)]
+        wrarity = self.rarity(prob)
+        
+        # Check if weapon already exists in inventory
+        with sqlite3.connect('user_login.db') as conn:
+            cursor = conn.cursor()
+            cursor.execute('SELECT id FROM weapon_inventory WHERE user_id = ? AND weapon_name = ?', 
+                         (self.userid, result))
+            if cursor.fetchone():
+                return
+            
+        # Add weapon to inventory and auto-equip it
+        self.db_manager.add_to_weapon_inventory(self.userid, result, weapontype, weapondamage, weaponability, wrarity)
+        with sqlite3.connect('user_login.db') as conn:
+            cursor = conn.cursor()
+            cursor.execute('SELECT MAX(id) FROM weapon_inventory WHERE user_id = ?', (self.userid,))
+            latest_weapon_id = cursor.fetchone()[0]
+            if latest_weapon_id:
+                self.db_manager.equip_weapon(self.userid, latest_weapon_id)
+        
+        self.weaponresult.configure(text=f"{result}", text_color=wrarity)
+        self.typeresult.configure(text=f"Type: {weapontype}", text_color=wrarity)
+        self.damageresult.configure(text=f"Damage: {weapondamage}", text_color=wrarity)
+        self.abilityresult.configure(text=f"Ability: {weaponability}", text_color=wrarity)
+
+        if prob == 1:
+            self.spinconformation(self.summonweapon)
+
+    def spinconformation(self, summonconfirmation):
+        response = messagebox.askyesno("Lucky summon!", "You got a unique summon! Would you like to summon again?")
+        if response:
+            summonconfirmation()
+
     def rarity(self, prob):
         if prob == 20:
             return "green"
@@ -903,6 +1154,10 @@ class Summoning(BaseApp):
             return "purple"
         elif prob == 1:
             return "#000000"
+
+    def openinventory(self):
+        self.window.withdraw()
+        self.inventory = Inventory(self.window, self.userid)
 
     def updatedisplay(self):
         result = getcsummon(self.userid)
@@ -924,14 +1179,98 @@ class Summoning(BaseApp):
         else:
             # Handle the case where getcsummon() returns None
             self.heroresult.configure(text="None", text_color="gray")
-            self.elementresult.configure(text="None", text_color="gray")
-            self.healthresult.configure(text="None", text_color="gray")
-            self.strenthgresult.configure(text="None", text_color="gray")
 
-            self.weaponresult.configure(text="None", text_color="gray")
-            self.typeresult.configure(text="None", text_color="gray")
-            self.damageresult.configure(text="None", text_color="gray")
-            self.abilityresult.configure(text="None", text_color="gray")
+class Inventory(BaseApp):
+    def __init__(self, main, user_id):
+        super().__init__(main, user_id, "Inventory", "800x700")
+        
+        # Create tabs for Heroes and Weapons
+        self.tabview = ctk.CTkTabview(self.window)
+        self.tabview.pack(pady=20, expand=True, fill="both")
+        
+        self.hero_tab = self.tabview.add("Heroes")
+        self.weapon_tab = self.tabview.add("Weapons")
+        
+        # Create scrollable frames for each tab
+        self.hero_frame = ctk.CTkScrollableFrame(self.hero_tab, width=700, height=400)
+        self.hero_frame.pack(pady=10, padx=10, expand=True, fill="both")
+        
+        self.weapon_frame = ctk.CTkScrollableFrame(self.weapon_tab, width=700, height=400)
+        self.weapon_frame.pack(pady=10, padx=10, expand=True, fill="both")
+        
+        # Load and display inventory
+        self.load_inventory()
+        
+        # Return button
+        self.back = ctk.CTkButton(self.window, text="Return to main menu", 
+                                fg_color="white", hover_color="#a5cd9d",
+                                text_color="#333333", font=("Arial", 15),
+                                command=self.backtomainmenu)
+        self.back.pack(pady=20)
+
+    def load_inventory(self):
+        # Clear existing items
+        for widget in self.hero_frame.winfo_children():
+            widget.destroy()
+        for widget in self.weapon_frame.winfo_children():
+            widget.destroy()
+            
+        # Load heroes
+        heroes = self.db_manager.get_hero_inventory(self.userid)
+        for hero in heroes:
+            hero_id, name, element, health, strength, rarity, equipped = hero
+            frame = ctk.CTkFrame(self.hero_frame)
+            frame.pack(pady=5, padx=5, fill="x")
+            
+            color = "gray"
+            if equipped:
+                color = "green"
+            
+            color = self.get_rarity_color(rarity)
+            info = f"{name} | {element} | HP: {health} | STR: {strength}"
+            label = ctk.CTkLabel(frame, text=info, text_color=color)
+            label.pack(side="left", padx=5)
+            
+            equip_btn = ctk.CTkButton(frame, text="Equip" if not equipped else "Equipped",
+                                    width=100, command=lambda h_id=hero_id: self.equip_hero(h_id))
+            equip_btn.pack(side="right", padx=5)
+            
+        # Load weapons
+        weapons = self.db_manager.get_weapon_inventory(self.userid)
+        for weapon in weapons:
+            weapon_id, name, type_, damage, ability, rarity, equipped = weapon
+            frame = ctk.CTkFrame(self.weapon_frame)
+            frame.pack(pady=5, padx=5, fill="x")
+            
+            color = "gray"
+            if equipped:
+                color = "green"
+            
+            color = self.get_rarity_color(rarity)
+            info = f"{name} | {type_} | DMG: {damage} | Ability: {ability}"
+            label = ctk.CTkLabel(frame, text=info, text_color=color)
+            label.pack(side="left", padx=5)
+            
+            equip_btn = ctk.CTkButton(frame, text="Equip" if not equipped else "Equipped",
+                                    width=100, command=lambda w_id=weapon_id: self.equip_weapon(w_id))
+            equip_btn.pack(side="right", padx=5)
+
+    def equip_hero(self, hero_id):
+        self.db_manager.equip_hero(self.userid, hero_id)
+        self.load_inventory()
+        
+    def equip_weapon(self, weapon_id):
+        self.db_manager.equip_weapon(self.userid, weapon_id)
+        self.load_inventory()
+
+    def get_rarity_color(self, rarity):
+        rarity_colors = {
+            "green": "green",
+            "#2542ce": "#2542ce",
+            "purple": "purple",
+            "#000000": "#000000"
+        }
+        return rarity_colors.get(rarity, "gray")
 
     def summonhero(self):
         # Check if player has enough gold
@@ -1205,8 +1544,34 @@ class Users(BaseApp):
         self.leaderboard.pack(pady=20)
 
         self.back = ctk.CTkButton(self.window, text="Return to main menu", fg_color="white", hover_color="#a5cd9d",
+                                  text_color="#333333", font=("Arial", 15), command=self.backtomainmenu)
+        self.back.pack(pady=20)
+
+        self.logout = ctk.CTkButton(self.window, text="Log out", fg_color="white", hover_color="#a5cd9d",
+                                    text_color="#333333", font=("Arial", 15), command=self.backtoentrance)
+        self.logout.pack(pady=20)
+
+    def openmodmenu(self):
+        if self.userid == 1:
+            # Get all the necessary data that was previously in Summoning class
+            self.hero = [
+                "Blaze", "Infernia", "Ember", "Ignis", "Vulcan",  # Fire
+                "Marina", "Tidal", "Cascade", "Aquaria", "Sirena",  # Water
+                "Terra", "Boulder", "Gaia", "Quarrix", "Petrus",  # Earth
+                "Zephyr", "Cyclone", "Aeris", "Ventra", "Skylar",  # Wind
+                "Volt", "Spark", "Thunderra", "Zappia", "Storme",  # Electric
+                "Frost", "Glaciel", "Chilla", "Cryonix", "Shivera",  # Ice
+                "Lumina", "Radiant", "Solara", "Aethera", "Halo",  # Light
+                "Umbra", "Nyx", "Shadowe", "Noctis", "Eclipse"  # Dark
+            ]
+
+        self.leaderboard = ctk.CTkButton(self.window, text="Leaderboard", fg_color="white", hover_color="#a5cd9d",
+                                         text_color="#333333", font=("Arial", 15), command=self.showleaderboard)
+        self.leaderboard.pack(pady=20)
+
+        self.back = ctk.CTkButton(self.window, text="Return to main menu", fg_color="white", hover_color="#a5cd9d",
                                   text_color="#333333", font=("Arial", 15),
-                                  command=lambda: self.backtomainmenu(user_id))
+                                  command=self.backtomainmenu)
         self.back.pack(pady=20)
 
         self.logout = ctk.CTkButton(self.window, text="Log out", fg_color="white", hover_color="#a5cd9d",
@@ -1216,6 +1581,13 @@ class Users(BaseApp):
     def close_leaderboard(self):
         if hasattr(self, 'leaderboard_window'):
             self.leaderboard_window.destroy()
+
+    def backtoentrance(self):
+        self.window.destroy()
+        if self.window.master:
+            self.window.master.destroy()
+        entrance = Entrance(None, None)
+        entrance.window.mainloop()
 
     def showleaderboard(self):
         self.leaderboard_window = ctk.CTkToplevel(self.window)
@@ -1318,6 +1690,97 @@ class Users(BaseApp):
                                fg_color="#96c4df", text_color="#333333", 
                                font=("Arial", 15))
             entry.pack(pady=5)
+
+class TeamManagement(BaseApp):
+    def __init__(self, main, user_id):
+        super().__init__(main, user_id, "Team Management", "800x600")
+        
+        self.slots_frame = ctk.CTkFrame(self.window, fg_color="#96c4df")
+        self.slots_frame.pack(pady=20)
+        
+        self.slots = []
+        self.current_heroes = []
+        
+        # Create three team slots
+        for i in range(3):
+            slot_frame = ctk.CTkFrame(self.slots_frame, fg_color="white")
+            slot_frame.pack(pady=10, padx=20, side="left")
+            
+            slot_label = ctk.CTkLabel(slot_frame, text=f"Slot {i+1}", font=("Arial", 15))
+            slot_label.pack(pady=5)
+            
+            hero_label = ctk.CTkLabel(slot_frame, text="Empty", font=("Arial", 15))
+            hero_label.pack(pady=5)
+            
+            select_button = ctk.CTkButton(slot_frame, text="Select Hero", 
+                                        command=lambda slot=i: self.select_hero(slot))
+            select_button.pack(pady=5)
+            
+            self.slots.append({"frame": slot_frame, "label": hero_label})
+        
+        self.load_team()
+        
+        self.back = ctk.CTkButton(self.window, text="Return to Battle", fg_color="white",
+                                 hover_color="#a5cd9d", text_color="#333333", font=("Arial", 15),
+                                 command=self.backtobattle)
+        self.back.pack(pady=20)
+        
+    def load_team(self):
+        with sqlite3.connect('user_login.db') as conn:
+            cursor = conn.cursor()
+            for i in range(3):
+                cursor.execute('''
+                    SELECT h.hero_name, h.rarity 
+                    FROM team_slots t
+                    JOIN hero_inventory h ON t.hero_id = h.id
+                    WHERE t.user_id = ? AND t.slot_number = ?
+                ''', (self.userid, i))
+                result = cursor.fetchone()
+                if result:
+                    hero_name, rarity = result
+                    self.slots[i]["label"].configure(text=hero_name, text_color=rarity)
+    
+    def select_hero(self, slot):
+        selection_window = ctk.CTkToplevel(self.window)
+        selection_window.title(f"Select Hero for Slot {slot+1}")
+        selection_window.geometry("400x600")
+        
+        hero_frame = ctk.CTkScrollableFrame(selection_window, width=350, height=500)
+        hero_frame.pack(pady=20)
+        
+        with sqlite3.connect('user_login.db') as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT id, hero_name, rarity 
+                FROM hero_inventory 
+                WHERE user_id = ? AND id NOT IN 
+                    (SELECT hero_id FROM team_slots WHERE user_id = ?)
+            ''', (self.userid, self.userid))
+            heroes = cursor.fetchall()
+            
+            for hero_id, name, rarity in heroes:
+                hero_button = ctk.CTkButton(hero_frame, text=name,
+                                          text_color=rarity,
+                                          command=lambda hid=hero_id, n=name, r=rarity: 
+                                          self.assign_hero(slot, hid, n, r, selection_window))
+                hero_button.pack(pady=5)
+    
+    def assign_hero(self, slot, hero_id, name, rarity, window):
+        with sqlite3.connect('user_login.db') as conn:
+            cursor = conn.cursor()
+            cursor.execute('DELETE FROM team_slots WHERE user_id = ? AND slot_number = ?',
+                         (self.userid, slot))
+            cursor.execute('INSERT INTO team_slots (user_id, slot_number, hero_id) VALUES (?, ?, ?)',
+                         (self.userid, slot, hero_id))
+            conn.commit()
+        
+        self.slots[slot]["label"].configure(text=name, text_color=rarity)
+        window.destroy()
+    
+    def backtobattle(self):
+        self.window.destroy()
+        self.window.master.deiconify()
+
 
     def openmodmenu(self):
         if self.userid == 1:
@@ -1598,10 +2061,18 @@ class Battle(BaseApp):
                                          text_color="#333333", font=("Arial", 15), command=self.openquest)
         self.questbutton.pack(pady=20)
 
+        self.team_button = ctk.CTkButton(self.window, text="Team", fg_color="white", hover_color="#a5cd9d",
+                                         text_color="#333333", font=("Arial", 15), command=self.openteam)
+        self.team_button.pack(pady=20)
+
         self.back_button = ctk.CTkButton(self.window, text="Return to Main Menu", fg_color="white",
                                          hover_color="#a5cd9d", text_color="#333333", font=("Arial", 15),
                                          command=self.backtomainmenu)
         self.back_button.pack(pady=20)
+
+    def openteam(self):
+        self.window.withdraw()
+        TeamManagement(self.window, self.userid)
 
     def opensiege(self):
         self.window.withdraw()
