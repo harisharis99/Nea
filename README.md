@@ -4,17 +4,18 @@ import math
 import random
 import sqlite3
 
+
 class BaseApp:
     def __init__(self, main, user_id, title="", geometry="400x200"):
         self.window = ctk.CTkToplevel(main) if main != None else ctk.CTk()
         self.window.title(title)
-        self.window.geometry(geometry)  
+        self.window.geometry(geometry)
         self.window.configure(fg_color="#96c4df")
         self.userid = user_id
         self.db_manager = Database()
 
         self.label = ctk.CTkLabel(self.window, text=title, fg_color="#96c4df",
-                                 text_color="#333333", font=("Helvetica", 20))
+                                  text_color="#333333", font=("Helvetica", 20))
         self.label.pack(pady=20)
 
     def backtomainmenu(self):
@@ -35,6 +36,7 @@ class BaseApp:
         except sqlite3.Error as e:
             print(f"Database error: {e}")
             return None
+
 
 class Database:
     def __init__(self):
@@ -234,12 +236,15 @@ class Database:
             print(f"Database error: {e}")
             return None
 
-    def delete_tables(self):
+    def deleter(self):
         try:
             with sqlite3.connect(self.db_name) as conn:
                 cursor = conn.cursor()
                 cursor.execute('DROP TABLE IF EXISTS player_data')
                 cursor.execute('DROP TABLE IF EXISTS users')
+                cursor.execute('DROP TABLE IF EXISTS hero_inventory')
+                cursor.execute('DROP TABLE IF EXISTS weapon_inventory')
+                cursor.execute('DROP TABLE IF EXISTS team_slots')
                 conn.commit()
         except sqlite3.Error as e:
             print(f"Database error: {e}")
@@ -278,14 +283,14 @@ class Database:
 
             # Element bonuses
             elementmultipliers = {
-                "Fire": 1.1,    # Fire gets 10% more health
-                "Water": 1.2,   # Water gets 20% more health
-                "Earth": 1.3,   # Earth gets 30% more health
-                "Wind": 1.0,    # Wind no bonus
+                "Fire": 1.1,  # Fire gets 10% more health
+                "Water": 1.2,  # Water gets 20% more health
+                "Earth": 1.3,  # Earth gets 30% more health
+                "Wind": 1.0,  # Wind no bonus
                 "Electric": 1.15,  # Electric gets 15% more health
-                "Ice": 1.25,    # Ice gets 25% more health
-                "Light": 1.2,   # Light gets 20% more health
-                "Dark": 1.1     # Dark gets 10% more health
+                "Ice": 1.25,  # Ice gets 25% more health
+                "Light": 1.2,  # Light gets 20% more health
+                "Dark": 1.1  # Dark gets 10% more health
             }
 
             # Apply element multiplier if element exists
@@ -298,8 +303,6 @@ class Database:
         except Exception as e:
             print(f"Health calculation error: {str(e)}")
             return 100  # Return default health on error
-
-
 
     def add_to_hero_inventory(self, user_id, hero_name, element, health, strength, rarity):
         try:
@@ -332,7 +335,8 @@ class Database:
                 # Unequip all heroes
                 cursor.execute('UPDATE hero_inventory SET equipped = 0 WHERE user_id = ?', (user_id,))
                 # Equip selected hero
-                cursor.execute('UPDATE hero_inventory SET equipped = 1 WHERE id = ? AND user_id = ?', (hero_id, user_id))
+                cursor.execute('UPDATE hero_inventory SET equipped = 1 WHERE id = ? AND user_id = ?',
+                               (hero_id, user_id))
                 # Get hero details
                 cursor.execute('''
                     SELECT hero_name, element, health, strength, rarity 
@@ -357,7 +361,8 @@ class Database:
                 # Unequip all weapons
                 cursor.execute('UPDATE weapon_inventory SET equipped = 0 WHERE user_id = ?', (user_id,))
                 # Equip selected weapon
-                cursor.execute('UPDATE weapon_inventory SET equipped = 1 WHERE id = ? AND user_id = ?', (weapon_id, user_id))
+                cursor.execute('UPDATE weapon_inventory SET equipped = 1 WHERE id = ? AND user_id = ?',
+                               (weapon_id, user_id))
                 # Get weapon details
                 cursor.execute('''
                     SELECT weapon_name, weapon_type, damage, ability, rarity 
@@ -405,8 +410,8 @@ class Database:
         try:
             with sqlite3.connect(self.db_name) as conn:
                 cursor = conn.cursor()
-                cursor.execute('UPDATE player_data SET gold = gold + ? WHERE user_id = ?', 
-                             (amount, user_id))
+                cursor.execute('UPDATE player_data SET gold = gold + ? WHERE user_id = ?',
+                               (amount, user_id))
                 conn.commit()
                 cursor.execute('SELECT gold FROM player_data WHERE user_id = ?', (user_id,))
                 return cursor.fetchone()[0]
@@ -414,8 +419,10 @@ class Database:
             print(f"Database error: {e}")
             return None
 
+
 # Create a global instance of Database
 db_manager = Database()
+
 
 class Entrance(BaseApp):
     def __init__(self, main, user_id):
@@ -556,8 +563,6 @@ class RegisterMenu(BaseApp):
     def __init__(self, main, user_id):
         super().__init__(main, user_id, "Register", "800x400")
 
-
-
         self.userl = ctk.CTkLabel(self.window, text="Username", fg_color="#96c4df", font=("Arial", 15))
         self.userl.place(x=100, y=100)
 
@@ -612,7 +617,7 @@ class RegisterMenu(BaseApp):
                 # Insert into users table
                 # Insert into users table
                 cursor.execute('INSERT INTO users (username, password) VALUES (?, ?)',
-                    (username, hashedpassword))
+                               (username, hashedpassword))
 
                 # Get the new user's ID
                 user_id = cursor.lastrowid
@@ -660,7 +665,8 @@ class MainMenu(BaseApp):
         self.settings.pack(pady=20)
         self.settings.place(x=50, y=140)
 
-        self.user = ctk.CTkButton(self.window, text="User", fg_color="white", hover_color="#a5cd9d", text_color="#333333",
+        self.user = ctk.CTkButton(self.window, text="User", fg_color="white", hover_color="#a5cd9d",
+                                  text_color="#333333",
                                   font=("Arial", 15), command=self.openusers)
         self.user.pack(pady=20)
 
@@ -688,7 +694,8 @@ class MainMenu(BaseApp):
 
 
 class Modmenu(BaseApp):
-    def __init__(self, main, user_id, heroes, weapons, heroprob, weaponprob, heroelements, herohealth, herostrenth,weapontypes, weapondmg, weaponabilities, userswindow):
+    def __init__(self, main, user_id, heroes, weapons, heroprob, weaponprob, heroelements, herohealth, herostrenth,
+                 weapontypes, weapondmg, weaponabilities, userswindow):
         super().__init__(main, user_id, "Mod Menu", "600x400")
         self.heroes = heroes
         self.weapons = weapons
@@ -701,8 +708,6 @@ class Modmenu(BaseApp):
         self.weapondmg = weapondmg
         self.weaponabilities = weaponabilities
         self.userswindow = userswindow
-
-
 
         # Add level setting frame
         self.levelframe = ctk.CTkFrame(self.window, fg_color="#96c4df")
@@ -895,7 +900,7 @@ class Summoning(BaseApp):
         self.abilityresult.pack(pady=5)
 
         self.inventory = ctk.CTkButton(self.window, text="Inventory", fg_color="white", hover_color="#a5cd9d",
-                                      text_color="#333333", font=("Arial", 15), command=self.openinventory)
+                                       text_color="#333333", font=("Arial", 15), command=self.openinventory)
         self.inventory.pack(pady=20)
 
         self.back = ctk.CTkButton(self.window, text="Return to main menu", fg_color="white", hover_color="#a5cd9d",
@@ -925,7 +930,7 @@ class Summoning(BaseApp):
                          20, 20, 1, 10, 5,  # Earth
                          1, 20, 5, 20, 10,  # Wind
                          5, 10, 1, 20, 20,  # Electric
-                         20, 10,20, 1, 5,  # Ice
+                         20, 10, 20, 1, 5,  # Ice
                          10, 20, 5, 20, 1,  # Light
                          20, 5, 20, 10, 1]  # Dark
 
@@ -1065,15 +1070,15 @@ class Summoning(BaseApp):
         strength = self.herostrenth[result]
         prob = self.heroprob[self.hero.index(result)]
         hrarity = self.rarity(prob)
-        
+
         # Check if hero already exists in inventory
         with sqlite3.connect('user_login.db') as conn:
             cursor = conn.cursor()
-            cursor.execute('SELECT id FROM hero_inventory WHERE user_id = ? AND hero_name = ?', 
-                         (self.userid, result))
+            cursor.execute('SELECT id FROM hero_inventory WHERE user_id = ? AND hero_name = ?',
+                           (self.userid, result))
             if cursor.fetchone():
                 return
-            
+
         # Add hero to inventory and auto-equip it
         self.db_manager.add_to_hero_inventory(self.userid, result, element, health, strength, hrarity)
         with sqlite3.connect('user_login.db') as conn:
@@ -1082,7 +1087,7 @@ class Summoning(BaseApp):
             latest_hero_id = cursor.fetchone()[0]
             if latest_hero_id:
                 self.db_manager.equip_hero(self.userid, latest_hero_id)
-        
+
         self.heroresult.configure(text=f"{result}", text_color=hrarity)
         self.elementresult.configure(text=f"Element: {element}", text_color=hrarity)
         self.healthresult.configure(text=f"Health: {health}", text_color=hrarity)
@@ -1114,15 +1119,15 @@ class Summoning(BaseApp):
         weaponability = self.weaponabilities[result]
         prob = self.weaponprob[self.weapons.index(result)]
         wrarity = self.rarity(prob)
-        
+
         # Check if weapon already exists in inventory
         with sqlite3.connect('user_login.db') as conn:
             cursor = conn.cursor()
-            cursor.execute('SELECT id FROM weapon_inventory WHERE user_id = ? AND weapon_name = ?', 
-                         (self.userid, result))
+            cursor.execute('SELECT id FROM weapon_inventory WHERE user_id = ? AND weapon_name = ?',
+                           (self.userid, result))
             if cursor.fetchone():
                 return
-            
+
         # Add weapon to inventory and auto-equip it
         self.db_manager.add_to_weapon_inventory(self.userid, result, weapontype, weapondamage, weaponability, wrarity)
         with sqlite3.connect('user_login.db') as conn:
@@ -1131,7 +1136,7 @@ class Summoning(BaseApp):
             latest_weapon_id = cursor.fetchone()[0]
             if latest_weapon_id:
                 self.db_manager.equip_weapon(self.userid, latest_weapon_id)
-        
+
         self.weaponresult.configure(text=f"{result}", text_color=wrarity)
         self.typeresult.configure(text=f"Type: {weapontype}", text_color=wrarity)
         self.damageresult.configure(text=f"Damage: {weapondamage}", text_color=wrarity)
@@ -1180,32 +1185,33 @@ class Summoning(BaseApp):
             # Handle the case where getcsummon() returns None
             self.heroresult.configure(text="None", text_color="gray")
 
+
 class Inventory(BaseApp):
     def __init__(self, main, user_id):
         super().__init__(main, user_id, "Inventory", "800x700")
-        
+
         # Create tabs for Heroes and Weapons
         self.tabview = ctk.CTkTabview(self.window)
         self.tabview.pack(pady=20, expand=True, fill="both")
-        
+
         self.hero_tab = self.tabview.add("Heroes")
         self.weapon_tab = self.tabview.add("Weapons")
-        
+
         # Create scrollable frames for each tab
         self.hero_frame = ctk.CTkScrollableFrame(self.hero_tab, width=700, height=400)
         self.hero_frame.pack(pady=10, padx=10, expand=True, fill="both")
-        
+
         self.weapon_frame = ctk.CTkScrollableFrame(self.weapon_tab, width=700, height=400)
         self.weapon_frame.pack(pady=10, padx=10, expand=True, fill="both")
-        
+
         # Load and display inventory
         self.load_inventory()
-        
+
         # Return button
-        self.back = ctk.CTkButton(self.window, text="Return to main menu", 
-                                fg_color="white", hover_color="#a5cd9d",
-                                text_color="#333333", font=("Arial", 15),
-                                command=self.backtomainmenu)
+        self.back = ctk.CTkButton(self.window, text="Return to main menu",
+                                  fg_color="white", hover_color="#a5cd9d",
+                                  text_color="#333333", font=("Arial", 15),
+                                  command=self.backtomainmenu)
         self.back.pack(pady=20)
 
     def load_inventory(self):
@@ -1214,51 +1220,51 @@ class Inventory(BaseApp):
             widget.destroy()
         for widget in self.weapon_frame.winfo_children():
             widget.destroy()
-            
+
         # Load heroes
         heroes = self.db_manager.get_hero_inventory(self.userid)
         for hero in heroes:
             hero_id, name, element, health, strength, rarity, equipped = hero
             frame = ctk.CTkFrame(self.hero_frame)
             frame.pack(pady=5, padx=5, fill="x")
-            
+
             color = "gray"
             if equipped:
                 color = "green"
-            
+
             color = self.get_rarity_color(rarity)
             info = f"{name} | {element} | HP: {health} | STR: {strength}"
             label = ctk.CTkLabel(frame, text=info, text_color=color)
             label.pack(side="left", padx=5)
-            
+
             equip_btn = ctk.CTkButton(frame, text="Equip" if not equipped else "Equipped",
-                                    width=100, command=lambda h_id=hero_id: self.equip_hero(h_id))
+                                      width=100, command=lambda h_id=hero_id: self.equip_hero(h_id))
             equip_btn.pack(side="right", padx=5)
-            
+
         # Load weapons
         weapons = self.db_manager.get_weapon_inventory(self.userid)
         for weapon in weapons:
             weapon_id, name, type_, damage, ability, rarity, equipped = weapon
             frame = ctk.CTkFrame(self.weapon_frame)
             frame.pack(pady=5, padx=5, fill="x")
-            
+
             color = "gray"
             if equipped:
                 color = "green"
-            
+
             color = self.get_rarity_color(rarity)
             info = f"{name} | {type_} | DMG: {damage} | Ability: {ability}"
             label = ctk.CTkLabel(frame, text=info, text_color=color)
             label.pack(side="left", padx=5)
-            
+
             equip_btn = ctk.CTkButton(frame, text="Equip" if not equipped else "Equipped",
-                                    width=100, command=lambda w_id=weapon_id: self.equip_weapon(w_id))
+                                      width=100, command=lambda w_id=weapon_id: self.equip_weapon(w_id))
             equip_btn.pack(side="right", padx=5)
 
     def equip_hero(self, hero_id):
         self.db_manager.equip_hero(self.userid, hero_id)
         self.load_inventory()
-        
+
     def equip_weapon(self, weapon_id):
         self.db_manager.equip_weapon(self.userid, weapon_id)
         self.load_inventory()
@@ -1367,13 +1373,14 @@ class Inventory(BaseApp):
                 UPDATE player_data 
                 SET chero = ?, celement = ?, chealth = ?, cstrenght = ?, hrarity = ? 
                 WHERE user_id = ?''',
-                (name, element_or_type, self.herohealth[name], self.herostrenth[name], rarity, self.userid))
+                           (name, element_or_type, self.herohealth[name], self.herostrenth[name], rarity, self.userid))
         else:
             cursor.execute('''
                 UPDATE player_data 
                 SET cweapon = ?, cweapontype = ?, cweapondamage = ?, cweaponabilitiy = ?, wrarity = ? 
                 WHERE user_id = ?''',
-                (name, element_or_type, self.weapondmg[name], self.weaponabilities[name], rarity, self.userid))
+                           (name, element_or_type, self.weapondmg[name], self.weaponabilities[name], rarity,
+                            self.userid))
 
         conn.commit()
         conn.close()
@@ -1407,24 +1414,26 @@ class Settings(BaseApp):
                 username, currentdamage, currenthealth, level = result
 
                 # Create and pack labels
-                self.useridlabel = ctk.CTkLabel(self.window, text=f"User ID: {self.userid}", 
-                                              fg_color="#96c4df", text_color="#333333", font=("Arial", 15))
+                self.useridlabel = ctk.CTkLabel(self.window, text=f"User ID: {self.userid}",
+                                                fg_color="#96c4df", text_color="#333333", font=("Arial", 15))
                 self.useridlabel.pack(pady=10)
 
-            self.usernamelabel = ctk.CTkLabel(self.window, text=f"Username: {username}", 
-                                            fg_color="#96c4df", text_color="#333333", font=("Arial", 15))
+            self.usernamelabel = ctk.CTkLabel(self.window, text=f"Username: {username}",
+                                              fg_color="#96c4df", text_color="#333333", font=("Arial", 15))
             self.usernamelabel.pack(pady=10)
 
-            self.damagelabel = ctk.CTkLabel(self.window, text=f"Current Damage: {currentdamage if currentdamage else '0'}", 
-                                          fg_color="#96c4df", text_color="#333333", font=("Arial", 15))
+            self.damagelabel = ctk.CTkLabel(self.window,
+                                            text=f"Current Damage: {currentdamage if currentdamage else '0'}",
+                                            fg_color="#96c4df", text_color="#333333", font=("Arial", 15))
             self.damagelabel.pack(pady=10)
 
-            self.healthlabel = ctk.CTkLabel(self.window, text=f"Current Health: {currenthealth if currenthealth else '100'}", 
-                                          fg_color="#96c4df", text_color="#333333", font=("Arial", 15))
+            self.healthlabel = ctk.CTkLabel(self.window,
+                                            text=f"Current Health: {currenthealth if currenthealth else '100'}",
+                                            fg_color="#96c4df", text_color="#333333", font=("Arial", 15))
             self.healthlabel.pack(pady=10)
 
-            self.levellabel = ctk.CTkLabel(self.window, text=f"Level: {level if level else '1'}", 
-                                         fg_color="#96c4df", text_color="#333333", font=("Arial", 15))
+            self.levellabel = ctk.CTkLabel(self.window, text=f"Level: {level if level else '1'}",
+                                           fg_color="#96c4df", text_color="#333333", font=("Arial", 15))
             self.levellabel.pack(pady=10)
 
             # Add base damage label
@@ -1436,8 +1445,8 @@ class Settings(BaseApp):
                 strength = int(strength) if strength and strength != 'None' else 5
                 weapon_damage = int(weapon_damage) if weapon_damage and weapon_damage != 'None' else 5
                 base_damage = max(25, strength * weapon_damage)  # Ensure minimum base damage of 25
-                self.base_damage_label = ctk.CTkLabel(self.window, text=f"Base Damage: {base_damage}", 
-                                                    fg_color="#96c4df", text_color="#333333", font=("Arial", 15))
+                self.base_damage_label = ctk.CTkLabel(self.window, text=f"Base Damage: {base_damage}",
+                                                      fg_color="#96c4df", text_color="#333333", font=("Arial", 15))
                 self.base_damage_label.pack(pady=10)
 
             # Add base health label
@@ -1445,8 +1454,8 @@ class Settings(BaseApp):
             health_result = cursor.fetchone()
             if health_result:
                 base_health = health_result[0] if health_result[0] and health_result[0] != 'None' else 100
-                self.base_health_label = ctk.CTkLabel(self.window, text=f"Base Health: {base_health}", 
-                                                    fg_color="#96c4df", text_color="#333333", font=("Arial", 15))
+                self.base_health_label = ctk.CTkLabel(self.window, text=f"Base Health: {base_health}",
+                                                      fg_color="#96c4df", text_color="#333333", font=("Arial", 15))
                 self.base_health_label.pack(pady=10)
 
             # Add gold label
@@ -1454,18 +1463,18 @@ class Settings(BaseApp):
             gold_result = cursor.fetchone()
             if gold_result:
                 gold = gold_result[0] if gold_result[0] else 0
-                self.gold_label = ctk.CTkLabel(self.window, text=f"Gold: {gold}", 
-                                             fg_color="#96c4df", text_color="#333333", font=("Arial", 15))
+                self.gold_label = ctk.CTkLabel(self.window, text=f"Gold: {gold}",
+                                               fg_color="#96c4df", text_color="#333333", font=("Arial", 15))
                 self.gold_label.pack(pady=10)
 
-            self.change_username_button = ctk.CTkButton(self.window, text="Change Username", fg_color="white", 
-                                                      hover_color="#a5cd9d", text_color="#333333", font=("Arial", 15),
-                                                      command=self.open_username_change)
+            self.change_username_button = ctk.CTkButton(self.window, text="Change Username", fg_color="white",
+                                                        hover_color="#a5cd9d", text_color="#333333", font=("Arial", 15),
+                                                        command=self.open_username_change)
             self.change_username_button.pack(pady=10)
 
-        self.back = ctk.CTkButton(self.window, text="Return to main menu", fg_color="white", 
-                                 hover_color="#a5cd9d", text_color="#333333", font=("Arial", 15),
-                                 command=self.backtomainmenu)
+        self.back = ctk.CTkButton(self.window, text="Return to main menu", fg_color="white",
+                                  hover_color="#a5cd9d", text_color="#333333", font=("Arial", 15),
+                                  command=self.backtomainmenu)
         self.back.pack(pady=20)
 
     def open_username_change(self):
@@ -1483,15 +1492,15 @@ class Settings(BaseApp):
         self.new_username_entry.pack(pady=20)
 
         # Submit button
-        self.submit_button = ctk.CTkButton(self.change_window, text="Submit", fg_color="white", 
-                                         hover_color="#a5cd9d", text_color="#333333", font=("Arial", 15),
-                                         command=self.change_username)
+        self.submit_button = ctk.CTkButton(self.change_window, text="Submit", fg_color="white",
+                                           hover_color="#a5cd9d", text_color="#333333", font=("Arial", 15),
+                                           command=self.change_username)
         self.submit_button.pack(pady=20)
 
         # Return button
         self.return_button = ctk.CTkButton(self.change_window, text="Return", fg_color="white",
-                                         hover_color="#a5cd9d", text_color="#333333", font=("Arial", 15),
-                                         command=self.on_change_window_close)
+                                           hover_color="#a5cd9d", text_color="#333333", font=("Arial", 15),
+                                           command=self.on_change_window_close)
         self.return_button.pack(pady=20)
 
     def on_change_window_close(self):
@@ -1602,24 +1611,23 @@ class Users(BaseApp):
         button_frame = ctk.CTkFrame(self.leaderboard_window, fg_color="#96c4df")
         button_frame.pack(pady=10)
 
-
-
         # Create scrollable frame for leaderboard entries
         scrollable_frame = ctk.CTkScrollableFrame(self.leaderboard_window, width=350, height=450)
         scrollable_frame.pack(pady=10)
 
         # Add title
-        self.title_label = ctk.CTkLabel(scrollable_frame, text="Top Players", 
-                                       fg_color="#96c4df", text_color="#333333", 
-                                       font=("Arial", 20, "bold"))
+        self.title_label = ctk.CTkLabel(scrollable_frame, text="Top Players",
+                                        fg_color="#96c4df", text_color="#333333",
+                                        font=("Arial", 20, "bold"))
         self.title_label.pack(pady=10)
 
         # Create sort options combobox
         sort_options = ["Sort by Damage", "Sort by Health", "Sort by Gold", "Sort by Level"]
         self.sort_combobox = ctk.CTkComboBox(button_frame, values=sort_options,
-                                            fg_color="white", text_color="#333333",
-                                            font=("Arial", 15),
-                                            command=lambda choice: self.update_leaderboard(choice.split()[-1].lower(), scrollable_frame))
+                                             fg_color="white", text_color="#333333",
+                                             font=("Arial", 15),
+                                             command=lambda choice: self.update_leaderboard(choice.split()[-1].lower(),
+                                                                                            scrollable_frame))
         self.sort_combobox.pack(pady=10)
         self.sort_combobox.set("Sort by Damage")  # Set default value
 
@@ -1627,9 +1635,9 @@ class Users(BaseApp):
         self.update_leaderboard("damage", scrollable_frame)
 
         # Create return button at the bottom
-        return_button = ctk.CTkButton(self.leaderboard_window, text="Return", fg_color="white", 
-                                    hover_color="#a5cd9d", text_color="#333333", 
-                                    font=("Arial", 15), command=self.close_leaderboard)
+        return_button = ctk.CTkButton(self.leaderboard_window, text="Return", fg_color="white",
+                                      hover_color="#a5cd9d", text_color="#333333",
+                                      font=("Arial", 15), command=self.close_leaderboard)
         return_button.pack(pady=10)
 
     def update_leaderboard(self, sort_by, frame):
@@ -1685,46 +1693,47 @@ class Users(BaseApp):
         # Add entries to leaderboard
         for rank, (username, value) in enumerate(results, 1):
             value = int(value) if value else 0
-            entry = ctk.CTkLabel(frame, 
-                               text=f"#{rank} - {username}: {value} {suffix}",
-                               fg_color="#96c4df", text_color="#333333", 
-                               font=("Arial", 15))
+            entry = ctk.CTkLabel(frame,
+                                 text=f"#{rank} - {username}: {value} {suffix}",
+                                 fg_color="#96c4df", text_color="#333333",
+                                 font=("Arial", 15))
             entry.pack(pady=5)
+
 
 class TeamManagement(BaseApp):
     def __init__(self, main, user_id):
         super().__init__(main, user_id, "Team Management", "800x600")
-        
+
         self.slots_frame = ctk.CTkFrame(self.window, fg_color="#96c4df")
         self.slots_frame.pack(pady=20)
-        
+
         self.slots = []
         self.current_heroes = []
-        
+
         # Create three team slots
         for i in range(3):
             slot_frame = ctk.CTkFrame(self.slots_frame, fg_color="white")
             slot_frame.pack(pady=10, padx=20, side="left")
-            
-            slot_label = ctk.CTkLabel(slot_frame, text=f"Slot {i+1}", font=("Arial", 15))
+
+            slot_label = ctk.CTkLabel(slot_frame, text=f"Slot {i + 1}", font=("Arial", 15))
             slot_label.pack(pady=5)
-            
+
             hero_label = ctk.CTkLabel(slot_frame, text="Empty", font=("Arial", 15))
             hero_label.pack(pady=5)
-            
-            select_button = ctk.CTkButton(slot_frame, text="Select Hero", 
-                                        command=lambda slot=i: self.select_hero(slot))
+
+            select_button = ctk.CTkButton(slot_frame, text="Select Hero",
+                                          command=lambda slot=i: self.select_hero(slot))
             select_button.pack(pady=5)
-            
+
             self.slots.append({"frame": slot_frame, "label": hero_label})
-        
+
         self.load_team()
-        
+
         self.back = ctk.CTkButton(self.window, text="Return to Battle", fg_color="white",
-                                 hover_color="#a5cd9d", text_color="#333333", font=("Arial", 15),
-                                 command=self.backtobattle)
+                                  hover_color="#a5cd9d", text_color="#333333", font=("Arial", 15),
+                                  command=self.backtobattle)
         self.back.pack(pady=20)
-        
+
     def load_team(self):
         with sqlite3.connect('user_login.db') as conn:
             cursor = conn.cursor()
@@ -1739,15 +1748,15 @@ class TeamManagement(BaseApp):
                 if result:
                     hero_name, rarity = result
                     self.slots[i]["label"].configure(text=hero_name, text_color=rarity)
-    
+
     def select_hero(self, slot):
         selection_window = ctk.CTkToplevel(self.window)
-        selection_window.title(f"Select Hero for Slot {slot+1}")
+        selection_window.title(f"Select Hero for Slot {slot + 1}")
         selection_window.geometry("400x600")
-        
+
         hero_frame = ctk.CTkScrollableFrame(selection_window, width=350, height=500)
         hero_frame.pack(pady=20)
-        
+
         with sqlite3.connect('user_login.db') as conn:
             cursor = conn.cursor()
             cursor.execute('''
@@ -1757,30 +1766,29 @@ class TeamManagement(BaseApp):
                     (SELECT hero_id FROM team_slots WHERE user_id = ?)
             ''', (self.userid, self.userid))
             heroes = cursor.fetchall()
-            
+
             for hero_id, name, rarity in heroes:
                 hero_button = ctk.CTkButton(hero_frame, text=name,
-                                          text_color=rarity,
-                                          command=lambda hid=hero_id, n=name, r=rarity: 
-                                          self.assign_hero(slot, hid, n, r, selection_window))
+                                            text_color=rarity,
+                                            command=lambda hid=hero_id, n=name, r=rarity:
+                                            self.assign_hero(slot, hid, n, r, selection_window))
                 hero_button.pack(pady=5)
-    
+
     def assign_hero(self, slot, hero_id, name, rarity, window):
         with sqlite3.connect('user_login.db') as conn:
             cursor = conn.cursor()
             cursor.execute('DELETE FROM team_slots WHERE user_id = ? AND slot_number = ?',
-                         (self.userid, slot))
+                           (self.userid, slot))
             cursor.execute('INSERT INTO team_slots (user_id, slot_number, hero_id) VALUES (?, ?, ?)',
-                         (self.userid, slot, hero_id))
+                           (self.userid, slot, hero_id))
             conn.commit()
-        
+
         self.slots[slot]["label"].configure(text=name, text_color=rarity)
         window.destroy()
-    
+
     def backtobattle(self):
         self.window.destroy()
         self.window.master.deiconify()
-
 
     def openmodmenu(self):
         if self.userid == 1:
@@ -1821,7 +1829,7 @@ class TeamManagement(BaseApp):
                 "Zephyr": "200", "Cyclone": "100", "Aeris": "175", "Ventra": "100", "Skylar": "150",  # Wind
                 "Volt": "175", "Spark": "150", "Thunderra": "200", "Zappia": "100", "Storme": "100",  # Electric
                 "Frost": "100", "Glaciel": "150", "Chilla": "100", "Cryonix": "200", "Shivera": "175",  # Ice
-                "Lumina": "150", "Radiant": "100", "Solara": "175", "Aethera": "100","Halo": "200",  # Light
+                "Lumina": "150", "Radiant": "100", "Solara": "175", "Aethera": "100", "Halo": "200",  # Light
                 "Umbra": "100", "Nyx": "175", "Shadowe": "100", "Noctis": "150", "Eclipse": "200"  # Dark
             }
             self.herostrenth = {
@@ -1840,7 +1848,7 @@ class TeamManagement(BaseApp):
                 "Rock Crusher", "Earthsplitter", "Terra Mace", "Stone Maul", "Boulder Hammer",  # Axe
                 "Zephyr Bow", "Storm Bow", "Gale Shooter", "Tempest Quiver", "Windrunner Bow",  # Bow
                 "Lightning Rod", "Thunder Staff", "Volt Wand", "Storm Orb", "Electro Scepter",  # Staff
-                "Frost Fang", "Ice Fang", "Glacier Blade", "Cryo Dagger","Shiver Knife",  # Dagger
+                "Frost Fang", "Ice Fang", "Glacier Blade", "Cryo Dagger", "Shiver Knife",  # Dagger
                 "Radiant Shield", "Halo Guard", "Solar Defender", "Light Barrier", "Aether Buckler",  # Shield
                 "Umbra Scythe", "Nyx Reaper", "Shadow Blade", "Noctis Saber", "Eclipse Cutter"  # Scythe
             ]
@@ -1930,7 +1938,8 @@ class SiegeMenu(BaseApp):
     def __init__(self, main, user_id):
         super().__init__(main, user_id, "Siege", "400x450")
 
-        self.startbattlebutton = ctk.CTkButton(self.window, text="Start battle", fg_color="white", hover_color="#a5cd9d",
+        self.startbattlebutton = ctk.CTkButton(self.window, text="Start battle", fg_color="white",
+                                               hover_color="#a5cd9d",
                                                text_color="#333333", font=("Helvetica", 20),
                                                command=lambda: self.battlebutton(self.levelup, self.playscene))
         self.startbattlebutton.pack(pady=20)
@@ -2040,9 +2049,9 @@ class SiegeMenu(BaseApp):
             new_gold = update_gold(self.userid, total_gold)
 
             messagebox.showinfo("Level Up!",
-                              f"Level increased to {new_level}\n"
-                              f"Gold earned: {total_gold} (Siege reward: {gold_reward} + Bonus: {siege_bonus})\n"
-                              f"Total gold: {new_gold}")
+                                f"Level increased to {new_level}\n"
+                                f"Gold earned: {total_gold} (Siege reward: {gold_reward} + Bonus: {siege_bonus})\n"
+                                f"Total gold: {new_gold}")
 
         conn.close()
         playscene()
@@ -2050,8 +2059,7 @@ class SiegeMenu(BaseApp):
 
 class Battle(BaseApp):
     def __init__(self, main, user_id):
-        super().__init__(main, user_id, "Battles", "400x300")
-
+        super().__init__(main, user_id, "Battles", "400x400")
 
         self.siegebutton = ctk.CTkButton(self.window, text="Siege", fg_color="white", hover_color="#a5cd9d",
                                          text_color="#333333", font=("Arial", 15), command=self.opensiege)
@@ -2091,7 +2099,6 @@ class Battle(BaseApp):
 class Quest(BaseApp):
     def __init__(self, main, user_id):
         super().__init__(main, user_id, "Quest", "400x300")
-
 
         self.label.pack(pady=20)
 
@@ -2148,8 +2155,8 @@ class Quest(BaseApp):
 
                 # Update database with new health
                 try:
-                    cursor.execute('UPDATE player_data SET currenthealth = ? WHERE user_id = ?', 
-                                 (newhealth, self.userid))
+                    cursor.execute('UPDATE player_data SET currenthealth = ? WHERE user_id = ?',
+                                   (newhealth, self.userid))
                     conn.commit()
                 except sqlite3.Error as e:
                     conn.rollback()
@@ -2193,7 +2200,8 @@ class Quest(BaseApp):
         # Get player's stats
         conn = sqlite3.connect('user_login.db')
         cursor = conn.cursor()
-        cursor.execute('SELECT cstrenght, cweapondamage, currenthealth FROM player_data WHERE user_id = ?', (self.userid,))
+        cursor.execute('SELECT cstrenght, cweapondamage, currenthealth FROM player_data WHERE user_id = ?',
+                       (self.userid,))
         result = cursor.fetchone()
         conn.close()
 
@@ -2241,7 +2249,7 @@ class Quest(BaseApp):
 
 class Battles(BaseApp):
     def __init__(self, questwindow, user_id, userhealth, enemies):
-        super().__init__(questwindow, user_id, "Battle", "600x600")
+        super().__init__(questwindow, user_id, "Battle", "600x700")
         self.userhealth = userhealth
         self.usermaxhealth = userhealth
         self.enemies = enemies
@@ -2322,7 +2330,8 @@ class Battles(BaseApp):
 
         conn = sqlite3.connect('user_login.db')
         cursor = conn.cursor()
-        cursor.execute('SELECT cstrenght, cweapondamage, celement, level FROM player_data WHERE user_id = ?', (self.userid,))
+        cursor.execute('SELECT cstrenght, cweapondamage, celement, level FROM player_data WHERE user_id = ?',
+                       (self.userid,))
         result = cursor.fetchone()
         conn.close()
 
@@ -2394,8 +2403,6 @@ class Battles(BaseApp):
         self.leaderboard_window.destroy()
         del self.leaderboard_window
 
-
-
         enemy = self.enemies[self.currentenemy]
         if self.userhealth <= 0:
             messagebox.showerror("Defeat", "You lost the battle. Try again!")
@@ -2413,7 +2420,8 @@ class Battles(BaseApp):
             cursor = conn.cursor()
 
             try:
-                cursor.execute('SELECT cstrenght, cweapondamage, celement, level FROM player_data WHERE user_id = ?', (self.userid,))
+                cursor.execute('SELECT cstrenght, cweapondamage, celement, level FROM player_data WHERE user_id = ?',
+                               (self.userid,))
                 result = cursor.fetchone()
 
                 if not result:
@@ -2431,7 +2439,8 @@ class Battles(BaseApp):
                     result = (userstrength, userweapondamage, userelement, level)
 
                 print(f"Battle started with enemy. Enemy health: {enemy['health']}")
-                print(f"Player stats loaded - Strength: {result[0]}, Weapon damage: {result[1]}, Element: {result[2]}, Level: {result[3]}")
+                print(
+                    f"Player stats loaded - Strength: {result[0]}, Weapon damage: {result[1]}, Element: {result[2]}, Level: {result[3]}")
 
             except sqlite3.Error as e:
                 print(f"Database error during battle: {e}")
@@ -2571,69 +2580,87 @@ class Battles(BaseApp):
         self.questwindow.deiconify()
 
     # Helper functions for database operations
+
+
 def update_gold(user_id, amount):
     db = Database()
     return db.update_gold(user_id, amount)
+
 
 def setcurrentdamage(user_id, damage):
     db = Database()
     db.set_current_damage(user_id, damage)
 
+
 def setlevel(user_id, level):
     db = Database()
     db.set_level(user_id, level)
+
 
 def setchero(hero, user_id):
     db = Database()
     db.set_hero(hero, user_id)
 
+
 def setcelement(element, user_id):
     db = Database()
     db.set_element(element, user_id)
+
 
 def sethrarity(rarity, user_id):
     db = Database()
     db.set_hero_rarity(rarity, user_id)
 
+
 def setchealth(health, user_id):
     db = Database()
     db.set_health(health, user_id)
+
 
 def setcstrenght(strength, user_id):
     db = Database()
     db.set_strength(strength, user_id)
 
+
 def setcweapon(weapon, user_id):
     db = Database()
     db.set_weapon(weapon, user_id)
+
 
 def setcweapontype(weapon_type, user_id):
     db = Database()
     db.set_weapon_type(weapon_type, user_id)
 
+
 def setwrarity(rarity, user_id):
     db = Database()
     db.set_weapon_rarity(rarity, user_id)
+
 
 def setcweapondamage(damage, user_id):
     db = Database()
     db.set_weapon_damage(damage, user_id)
 
+
 def setcweaponability(ability, user_id):
     db = Database()
     db.set_weapon_ability(ability, user_id)
+
 
 def getcsummon(user_id):
     db = Database()
     return db.get_summon(user_id)
 
+
 def calculatehealth(level, basehealth, element):
     db = Database()
     return db.calculatehealth(level, basehealth, element)
 
+
 def logindata_db():
     db = Database()
     db.initialize_db()
+
 
 if __name__ == "__main__":
     logindata_db()
