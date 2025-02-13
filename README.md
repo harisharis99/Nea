@@ -106,6 +106,7 @@ class Database:
                 health TEXT,
                 strength TEXT,
                 rarity TEXT,
+                level INTEGER DEFAULT 1,
                 equipped INTEGER DEFAULT 0,
                 FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
             )
@@ -696,7 +697,7 @@ class MainMenu(BaseApp):
 class Modmenu(BaseApp):
     def __init__(self, main, user_id, heroes, weapons, heroprob, weaponprob, heroelements, herohealth, herostrenth,
                  weapontypes, weapondmg, weaponabilities, userswindow):
-        super().__init__(main, user_id, "Mod Menu", "600x400")
+        super().__init__(main, user_id, "Mod Menu", "800x600")
         self.heroes = heroes
         self.weapons = weapons
         self.heroprob = heroprob
@@ -709,8 +710,15 @@ class Modmenu(BaseApp):
         self.weaponabilities = weaponabilities
         self.userswindow = userswindow
 
-        # Add level setting frame
-        self.levelframe = ctk.CTkFrame(self.window, fg_color="#96c4df")
+        # Create main frames
+        self.leftframe = ctk.CTkFrame(self.window, fg_color="#96c4df")
+        self.leftframe.pack(side="left", fill="y", padx=10, pady=10)
+
+        self.rightframe = ctk.CTkFrame(self.window, fg_color="#96c4df")
+        self.rightframe.pack(side="right", fill="y", padx=10, pady=10)
+
+        # Level setting section
+        self.levelframe = ctk.CTkFrame(self.leftframe, fg_color="#96c4df")
         self.levelframe.pack(pady=10)
 
         self.levellabel = ctk.CTkLabel(self.levelframe, text="Set Level:", fg_color="#96c4df", text_color="#333333",
@@ -724,19 +732,53 @@ class Modmenu(BaseApp):
                                             text_color="#333333", font=("Arial", 15), command=self.updatelevel)
         self.setlevelbutton.pack(side="left", padx=5)
 
-        self.herolistbox = ctk.CTkScrollableFrame(self.window, width=250, height=300)
-        self.herolistbox.pack(side="left", padx=10, pady=10)
+        # Gold setting section
+        self.goldframe = ctk.CTkFrame(self.leftframe, fg_color="#96c4df")
+        self.goldframe.pack(pady=10)
 
-        self.weaponlistbox = ctk.CTkScrollableFrame(self.window, width=250, height=300)
-        self.weaponlistbox.pack(side="right", padx=10, pady=10)
+        self.goldlabel = ctk.CTkLabel(self.goldframe, text="Set Gold:", fg_color="#96c4df", text_color="#333333",
+                                      font=("Arial", 15))
+        self.goldlabel.pack(side="left", padx=5)
 
+        self.goldentry = ctk.CTkEntry(self.goldframe, font=("Arial", 15), width=100)
+        self.goldentry.pack(side="left", padx=5)
+
+        self.setgoldbutton = ctk.CTkButton(self.goldframe, text="Set Gold", fg_color="white", hover_color="#a5cd9d",
+                                           text_color="#333333", font=("Arial", 15), command=self.updategold)
+        self.setgoldbutton.pack(side="left", padx=5)
+
+        # Hero and Weapon sections
+        self.heroframe = ctk.CTkFrame(self.rightframe, fg_color="#96c4df")
+        self.heroframe.pack(pady=10)
+
+        self.weaponframe = ctk.CTkFrame(self.rightframe, fg_color="#96c4df")
+        self.weaponframe.pack(pady=10)
+
+        # Hero list
+        self.herolabel = ctk.CTkLabel(self.heroframe, text="Heroes", fg_color="#96c4df", text_color="#333333",
+                                      font=("Arial", 15, "bold"))
+        self.herolabel.pack(pady=5)
+
+        self.herolistbox = ctk.CTkScrollableFrame(self.heroframe, width=300, height=200)
+        self.herolistbox.pack(padx=10, pady=5)
+
+        # Weapon list
+        self.weaponlabel = ctk.CTkLabel(self.weaponframe, text="Weapons", fg_color="#96c4df", text_color="#333333",
+                                        font=("Arial", 15, "bold"))
+        self.weaponlabel.pack(pady=5)
+
+        self.weaponlistbox = ctk.CTkScrollableFrame(self.weaponframe, width=300, height=200)
+        self.weaponlistbox.pack(padx=10, pady=5)
+
+        # Populate lists
         self.populatelistbox(self.herolistbox, heroes, heroprob, self.selecthero)
         self.populatelistbox(self.weaponlistbox, weapons, weaponprob, self.selectweapon)
 
+        # Return button at bottom
         self.returnbutton = ctk.CTkButton(self.window, text="Return to User Menu", fg_color="white",
                                           hover_color="#a5cd9d", text_color="#333333", font=("Arial", 15),
                                           command=self.returntousers)
-        self.returnbutton.pack(pady=10)
+        self.returnbutton.pack(side="bottom", pady=10)
 
     def mergesort(self, arr):
         if len(arr) <= 1:
@@ -836,6 +878,25 @@ class Modmenu(BaseApp):
             messagebox.showinfo("Success", f"Level updated to {newlevel}")
         except ValueError:
             messagebox.showerror("Error", "Please enter a valid number!")
+
+    def updategold(self):
+        try:
+            newgold = int(self.goldentry.get())
+            if newgold < 0:
+                messagebox.showerror("Error", "Gold cannot be negative!")
+                return
+            
+            conn = sqlite3.connect('user_login.db')
+            cursor = conn.cursor()
+            cursor.execute('UPDATE player_data SET gold = ? WHERE user_id = ?', (newgold, self.userid))
+            conn.commit()
+            conn.close()
+            
+            messagebox.showinfo("Success", f"Gold updated to {newgold}")
+        except ValueError:
+            messagebox.showerror("Error", "Please enter a valid number!")
+        except sqlite3.Error as e:
+            messagebox.showerror("Error", f"Database error: {str(e)}")
 
 
 class Summoning(BaseApp):
@@ -1233,9 +1294,17 @@ class Inventory(BaseApp):
                 color = "green"
 
             color = self.get_rarity_color(rarity)
-            info = f"{name} | {element} | HP: {health} | STR: {strength}"
+            level = hero[7]  # Get level from DB
+            scaled_health = int(int(health) * (1 + (level * 0.1)))  # 10% increase per level
+            scaled_strength = int(int(strength) * (1 + (level * 0.1)))  # 10% increase per level
+            info = f"{name} | Lvl {level} | HP: {scaled_health} | STR: {scaled_strength}"
             label = ctk.CTkLabel(frame, text=info, text_color=color)
             label.pack(side="left", padx=5)
+
+            level_cost = 1000 * (level ** 2)  # Exponential cost increase
+            level_btn = ctk.CTkButton(frame, text=f"Level Up ({level_cost} gold)", 
+                                     width=120, command=lambda h_id=hero_id, cost=level_cost: self.level_up_hero(h_id, cost))
+            level_btn.pack(side="right", padx=5)
 
             equip_btn = ctk.CTkButton(frame, text="Equip" if not equipped else "Equipped",
                                       width=100, command=lambda h_id=hero_id: self.equip_hero(h_id))
@@ -1278,117 +1347,7 @@ class Inventory(BaseApp):
         }
         return rarity_colors.get(rarity, "gray")
 
-    def summonhero(self):
-        # Check if player has enough gold
-        conn = sqlite3.connect('user_login.db')
-        cursor = conn.cursor()
-        cursor.execute('SELECT gold FROM player_data WHERE user_id = ?', (self.userid,))
-        current_gold = cursor.fetchone()[0]
 
-        if current_gold < 10000:
-            messagebox.showerror("Not Enough Gold", "Summoning requires 10,000 gold!")
-            conn.close()
-            return
-
-        # Deduct gold and proceed with summon
-        cursor.execute('UPDATE player_data SET gold = gold - 10000 WHERE user_id = ?', (self.userid,))
-        conn.commit()
-        conn.close()
-
-        result = random.choices(self.hero, weights=self.heroprob, k=1)[0]
-        element = self.heroelements[result]
-        health = self.herohealth[result]
-        strenght = self.herostrenth[result]
-        prob = self.heroprob[self.hero.index(result)]
-        hrarity = self.rarity(prob)
-        self.heroresult.configure(text=f" {result} ", text_color=hrarity)
-        self.elementresult.configure(text=f"Element: {element}", text_color=hrarity)
-        self.healthresult.configure(text=f"Health: {health}", text_color=hrarity)
-        self.strenthgresult.configure(text=f"Strength: {strenght}", text_color=hrarity)
-        setchero(result, self.userid)
-        setcelement(element, self.userid)
-        sethrarity(hrarity, self.userid)
-        setchealth(health, self.userid)
-        setcstrenght(strenght, self.userid)
-        self.save_summon(result, element, hrarity, is_hero=True)
-        self.updatedisplay()
-
-        if prob == 1:
-            print(f"UNIQUE SUMMON: {result}")
-        else:
-            print(f"Summoned Hero: {result} with probability {prob}")
-
-        if prob == 1:
-            self.spinconformation(self.summonhero)
-
-    def summonweapon(self):
-        # Check if player has enough gold
-        conn = sqlite3.connect('user_login.db')
-        cursor = conn.cursor()
-        cursor.execute('SELECT gold FROM player_data WHERE user_id = ?', (self.userid,))
-        current_gold = cursor.fetchone()[0]
-
-        if current_gold < 10000:
-            messagebox.showerror("Not Enough Gold", "Summoning requires 10,000 gold!")
-            conn.close()
-            return
-
-        # Deduct gold and proceed with summon
-        cursor.execute('UPDATE player_data SET gold = gold - 10000 WHERE user_id = ?', (self.userid,))
-        conn.commit()
-        conn.close()
-
-        result = random.choices(self.weapons, weights=self.weaponprob, k=1)[0]
-        weapontype = self.weapontypes[result]
-        weapondamage = self.weapondmg[result]
-        weaponability = self.weaponabilities[result]
-        prob = self.weaponprob[self.weapons.index(result)]
-        wrarity = self.rarity(prob)
-        self.weaponresult.configure(text=f" {result}", text_color=wrarity)
-        self.typeresult.configure(text=f"Type: {weapontype}", text_color=wrarity)
-        self.damageresult.configure(text=f"Damage: {weapondamage}", text_color=wrarity)
-        self.abilityresult.configure(text=f"Ability: {weaponability}", text_color=wrarity)
-        setcweapon(result, self.userid)
-        setcweapontype(weapontype, self.userid)
-        setwrarity(wrarity, self.userid)
-        setcweapondamage(weapondamage, self.userid)
-        setcweaponability(weaponability, self.userid)
-        self.save_summon(result, weapontype, wrarity, is_hero=False)
-        self.updatedisplay()
-
-        if prob == 1:
-            print(f"UNIQUE SUMMON: {result}")
-        else:
-            print(f"Summoned Weapon: {result} with probability {prob}")
-
-        if prob == 1:
-            self.spinconformation(self.summonweapon)
-
-    def save_summon(self, name, element_or_type, rarity, is_hero=True):
-        conn = sqlite3.connect('user_login.db')
-        cursor = conn.cursor()
-
-        if is_hero:
-            cursor.execute('''
-                UPDATE player_data 
-                SET chero = ?, celement = ?, chealth = ?, cstrenght = ?, hrarity = ? 
-                WHERE user_id = ?''',
-                           (name, element_or_type, self.herohealth[name], self.herostrenth[name], rarity, self.userid))
-        else:
-            cursor.execute('''
-                UPDATE player_data 
-                SET cweapon = ?, cweapontype = ?, cweapondamage = ?, cweaponabilitiy = ?, wrarity = ? 
-                WHERE user_id = ?''',
-                           (name, element_or_type, self.weapondmg[name], self.weaponabilities[name], rarity,
-                            self.userid))
-
-        conn.commit()
-        conn.close()
-
-    def spinconformation(self, summonconformation):
-        response = messagebox.askyesno("Lucky summon!", "You got a unique summon are you sure you want to spin again")
-        if response:
-            summonconformation()
 
     def backtomainmenu(self):
         self.window.destroy()
@@ -1560,6 +1519,44 @@ class Users(BaseApp):
                                     text_color="#333333", font=("Arial", 15), command=self.backtoentrance)
         self.logout.pack(pady=20)
 
+    def level_up_hero(self, hero_id, cost):
+        try:
+            conn = sqlite3.connect('user_login.db')
+            cursor = conn.cursor()
+            
+            # Check if user has enough gold
+            cursor.execute('SELECT gold FROM player_data WHERE user_id = ?', (self.userid,))
+            current_gold = cursor.fetchone()[0]
+            
+            if current_gold < cost:
+                messagebox.showerror("Error", "Not enough gold!")
+                return
+            
+            # Deduct gold and increase hero level
+            cursor.execute('UPDATE player_data SET gold = gold - ? WHERE user_id = ?', (cost, self.userid))
+            cursor.execute('UPDATE hero_inventory SET level = level + 1 WHERE id = ?', (hero_id,))
+            conn.commit()
+            
+            # Refresh inventory display
+            self.load_inventory()
+            messagebox.showinfo("Success", "Hero leveled up!")
+            
+        except sqlite3.Error as e:
+            print(f"Database error: {e}")
+            messagebox.showerror("Error", "Failed to level up hero")
+        finally:
+            if conn:
+                conn.close()
+
+
+        self.back = ctk.CTkButton(self.window, text="Return to main menu", fg_color="white", hover_color="#a5cd9d",
+                                  text_color="#333333", font=("Arial", 15), command=self.backtomainmenu)
+        self.back.pack(pady=20)
+
+        self.logout = ctk.CTkButton(self.window, text="Log out", fg_color="white", hover_color="#a5cd9d",
+                                    text_color="#333333", font=("Arial", 15), command=self.backtoentrance)
+        self.logout.pack(pady=20)
+
     def openmodmenu(self):
         if self.userid == 1:
             # Get all the necessary data that was previously in Summoning class
@@ -1573,19 +1570,123 @@ class Users(BaseApp):
                 "Lumina", "Radiant", "Solara", "Aethera", "Halo",  # Light
                 "Umbra", "Nyx", "Shadowe", "Noctis", "Eclipse"  # Dark
             ]
-
-        self.leaderboard = ctk.CTkButton(self.window, text="Leaderboard", fg_color="white", hover_color="#a5cd9d",
-                                         text_color="#333333", font=("Arial", 15), command=self.showleaderboard)
-        self.leaderboard.pack(pady=20)
-
-        self.back = ctk.CTkButton(self.window, text="Return to main menu", fg_color="white", hover_color="#a5cd9d",
-                                  text_color="#333333", font=("Arial", 15),
-                                  command=self.backtomainmenu)
-        self.back.pack(pady=20)
-
-        self.logout = ctk.CTkButton(self.window, text="Log out", fg_color="white", hover_color="#a5cd9d",
-                                    text_color="#333333", font=("Arial", 15), command=self.backtoentrance)
-        self.logout.pack(pady=20)
+            self.heroprob = [1, 1, 20, 10, 5,  # Fire
+                             20, 20, 5, 10, 1,  # Water
+                             20, 20, 1, 10, 5,  # Earth
+                             1, 20, 5, 20, 10,  # Wind
+                             5, 10, 1, 20, 20,  # Electric
+                             20, 10, 20, 1, 5,  # Ice
+                             10, 20, 5, 20, 1,  # Light
+                             20, 5, 20, 10, 1]  # Dark
+            self.heroelements = {
+                "Blaze": "Fire", "Infernia": "Fire", "Ember": "Fire", "Ignis": "Fire", "Vulcan": "Fire",
+                "Marina": "Water", "Tidal": "Water", "Cascade": "Water", "Aquaria": "Water", "Sirena": "Water",
+                "Terra": "Earth", "Boulder": "Earth", "Gaia": "Earth", "Quarrix": "Earth", "Petrus": "Earth",
+                "Zephyr": "Wind", "Cyclone": "Wind", "Aeris": "Wind", "Ventra": "Wind", "Skylar": "Wind",
+                "Volt": "Electric", "Spark": "Electric", "Thunderra": "Electric", "Zappia": "Electric",
+                "Storme": "Electric",
+                "Frost": "Ice", "Glaciel": "Ice", "Chilla": "Ice", "Cryonix": "Ice", "Shivera": "Ice",
+                "Lumina": "Light", "Radiant": "Light", "Solara": "Light", "Aethera": "Light", "Halo": "Light",
+                "Umbra": "Dark", "Nyx": "Dark", "Shadowe": "Dark", "Noctis": "Dark", "Eclipse": "Dark"
+            }
+            self.herohealth = {
+                "Blaze": "200", "Infernia": "200", "Ember": "100", "Ignis": "150", "Vulcan": "175",  # Fire
+                "Marina": "100", "Tidal": "100", "Cascade": "175", "Aquaria": "150", "Sirena": "200",  # Water
+                "Terra": "100", "Boulder": "100", "Gaia": "200", "Quarrix": "150", "Petrus": "175",  # Earth
+                "Zephyr": "200", "Cyclone": "100", "Aeris": "175", "Ventra": "100", "Skylar": "150",  # Wind
+                "Volt": "175", "Spark": "150", "Thunderra": "200", "Zappia": "100", "Storme": "100",  # Electric
+                "Frost": "100", "Glaciel": "150", "Chilla": "100", "Cryonix": "200", "Shivera": "175",  # Ice
+                "Lumina": "150", "Radiant": "100", "Solara": "175", "Aethera": "100", "Halo": "200",  # Light
+                "Umbra": "100", "Nyx": "175", "Shadowe": "100", "Noctis": "150", "Eclipse": "200"  # Dark
+            }
+            self.herostrenth = {
+                "Blaze": "100", "Infernia": "100", "Ember": "25", "Ignis": "50", "Vulcan": "75",  # Fire
+                "Marina": "25", "Tidal": "25", "Cascade": "75", "Aquaria": "50", "Sirena": "100",  # Water
+                "Terra": "25", "Boulder": "25", "Gaia": "100", "Quarrix": "50", "Petrus": "75",  # Earth
+                "Zephyr": "100", "Cyclone": "25", "Aeris": "75", "Ventra": "25", "Skylar": "50",  # Wind
+                "Volt": "75", "Spark": "50", "Thunderra": "100", "Zappia": "25", "Storme": "25",  # Electric
+                "Frost": "25", "Glaciel": "50", "Chilla": "25", "Cryonix": "100", "Shivera": "75",  # Ice
+                "Lumina": "50", "Radiant": "25", "Solara": "75", "Aethera": "25", "Halo": "100",  # Light
+                "Umbra": "25", "Nyx": "75", "Shadowe": "25", "Noctis": "50", "Eclipse": "100"  # Dark
+            }
+            self.weapons = [
+                "Excalibur", "Flametongue", "Blade of Inferno", "Molten Edge", "Lava Cleaver",  # Sword
+                "Aqua Harpoon", "Poseidon's Spear", "Coral Lance", "Tidal Pike", "Marine Javelin",  # Spear
+                "Rock Crusher", "Earthsplitter", "Terra Mace", "Stone Maul", "Boulder Hammer",  # Axe
+                "Zephyr Bow", "Storm Bow", "Gale Shooter", "Tempest Quiver", "Windrunner Bow",  # Bow
+                "Lightning Rod", "Thunder Staff", "Volt Wand", "Storm Orb", "Electro Scepter",  # Staff
+                "Frost Fang", "Ice Fang", "Glacier Blade", "Cryo Dagger", "Shiver Knife",  # Dagger
+                "Radiant Shield", "Halo Guard", "Solar Defender", "Light Barrier", "Aether Buckler",  # Shield
+                "Umbra Scythe", "Nyx Reaper", "Shadow Blade", "Noctis Saber", "Eclipse Cutter"  # Scythe
+            ]
+            self.weaponprob = [1, 20, 5, 10, 20,  # Sword
+                               20, 1, 10, 5, 20,  # Spear
+                               20, 1, 5, 20, 10,  # Axe
+                               1, 5, 20, 10, 20,  # Bow
+                               20, 20, 10, 5, 1,  # Staff
+                               5, 20, 10, 10, 1,  # Dagger
+                               20, 1, 5, 10, 20,  # Shield
+                               20, 5, 10, 20, 1]  # Scythe
+            self.weaponabilities = {
+                "Excalibur": "Flame Sever", "Flametongue": "None", "Blade of Inferno": "None", "Molten Edge": "None",
+                "Lava Cleaver": "None",
+                "Aqua Harpoon": "None", "Poseidon's Spear": "None", "Coral Lance": "None", "Tidal Pike": "None",
+                "Marine Javelin": "Tidal Fury",
+                "Rock Crusher": "None", "Earthsplitter": "None", "Terra Mace": "None", "Stone Maul": "None",
+                "Boulder Hammer": "Rockfall",
+                "Zephyr Bow": "None", "Storm Bow": "None", "Gale Shooter": "None", "Tempest Quiver": "None",
+                "Windrunner Bow": "Windstrike",
+                "Lightning Rod": "None", "Thunder Staff": "None", "Volt Wand": "None", "Storm Orb": "None",
+                "Electro Scepter": "Thunderstorm",
+                "Frost Fang": "None", "Ice Fang": "None", "Glacier Blade": "None", "Cryo Dagger": "None",
+                "Shiver Knife": "Ice Storm",
+                "Radiant Shield": "None", "Halo Guard": "None", "Solar Defender": "None", "Light Barrier": "None",
+                "Aether Buckler": "Aether Guard",
+                "Umbra Scythe": "None", "Nyx Reaper": "None", "Shadow Blade": "None", "Noctis Saber": "None",
+                "Eclipse Cutter": "Shadow Cleaver"
+            }
+            self.weapondmg = {
+                "Excalibur": "100", "Flametongue": "25", "Blade of Inferno": "75", "Molten Edge": "50",
+                "Lava Cleaver": "25",
+                "Aqua Harpoon": "25", "Poseidon's Spear": "75", "Coral Lance": "25", "Tidal Pike": "50",
+                "Marine Javelin": "100",
+                "Rock Crusher": "25", "Earthsplitter": "75", "Terra Mace": "50", "Stone Maul": "25",
+                "Boulder Hammer": "100",
+                "Zephyr Bow": "75", "Storm Bow": "50", "Gale Shooter": "25", "Tempest Quiver": "50",
+                "Windrunner Bow": "100",
+                "Lightning Rod": "50", "Thunder Staff": "75", "Volt Wand": "25", "Storm Orb": "50",
+                "Electro Scepter": "100",
+                "Frost Fang": "75", "Ice Fang": "50", "Glacier Blade": "25", "Cryo Dagger": "50", "Shiver Knife": "100",
+                "Radiant Shield": "75", "Halo Guard": "50", "Solar Defender": "25", "Light Barrier": "50",
+                "Aether Buckler": "100",
+                "Umbra Scythe": "75", "Nyx Reaper": "50", "Shadow Blade": "25", "Noctis Saber": "50",
+                "Eclipse Cutter": "100"
+            }
+            self.weapontypes = {
+                "Excalibur": "Sword", "Flametongue": "Sword", "Blade of Inferno": "Sword", "Molten Edge": "Sword",
+                "Lava Cleaver": "Sword",
+                "Aqua Harpoon": "Spear", "Poseidon's Spear": "Spear", "Coral Lance": "Spear", "Tidal Pike": "Spear",
+                "Marine Javelin": "Spear",
+                "Rock Crusher": "Axe", "Earthsplitter": "Axe", "Terra Mace": "Axe", "Stone Maul": "Axe",
+                "Boulder Hammer": "Axe",
+                "Zephyr Bow": "Bow", "Storm Bow": "Bow", "Gale Shooter": "Bow", "Tempest Quiver": "Bow",
+                "Windrunner Bow": "Bow",
+                "Lightning Rod": "Staff", "Thunder Staff": "Staff", "Volt Wand": "Staff", "Storm Orb": "Staff",
+                "Electro Scepter": "Staff",
+                "Frost Fang": "Dagger", "Ice Fang": "Dagger", "Glacier Blade": "Dagger", "Cryo Dagger": "Dagger",
+                "Shiver Knife": "Dagger",
+                "Radiant Shield": "Shield", "Halo Guard": "Shield", "Solar Defender": "Shield",
+                "Light Barrier": "Shield", "Aether Buckler": "Shield",
+                "Umbra Scythe": "Scythe", "Nyx Reaper": "Scythe", "Noctis Saber": "Scythe",
+                "Eclipse Cutter": "Scythe"
+            }
+            self.window.withdraw()
+            self.modmenu = Modmenu(self.window, self.userid, self.hero, self.weapons,
+                                   self.heroprob, self.weaponprob, self.heroelements,
+                                   self.herohealth, self.herostrenth, self.weapontypes,
+                                   self.weapondmg, self.weaponabilities, self)
+        else:
+            messagebox.showerror("Access Denied", "You do not have permission to access the Mod Menu.")
 
     def close_leaderboard(self):
         if hasattr(self, 'leaderboard_window'):
@@ -1790,141 +1891,6 @@ class TeamManagement(BaseApp):
         self.window.destroy()
         self.window.master.deiconify()
 
-    def openmodmenu(self):
-        if self.userid == 1:
-            # Get all the necessary data that was previously in Summoning class
-            self.hero = [
-                "Blaze", "Infernia", "Ember", "Ignis", "Vulcan",  # Fire
-                "Marina", "Tidal", "Cascade", "Aquaria", "Sirena",  # Water
-                "Terra", "Boulder", "Gaia", "Quarrix", "Petrus",  # Earth
-                "Zephyr", "Cyclone", "Aeris", "Ventra", "Skylar",  # Wind
-                "Volt", "Spark", "Thunderra", "Zappia", "Storme",  # Electric
-                "Frost", "Glaciel", "Chilla", "Cryonix", "Shivera",  # Ice
-                "Lumina", "Radiant", "Solara", "Aethera", "Halo",  # Light
-                "Umbra", "Nyx", "Shadowe", "Noctis", "Eclipse"  # Dark
-            ]
-            self.heroprob = [1, 1, 20, 10, 5,  # Fire
-                             20, 20, 5, 10, 1,  # Water
-                             20, 20, 1, 10, 5,  # Earth
-                             1, 20, 5, 20, 10,  # Wind
-                             5, 10, 1, 20, 20,  # Electric
-                             20, 10, 20, 1, 5,  # Ice
-                             10, 20, 5, 20, 1,  # Light
-                             20, 5, 20, 10, 1]  # Dark
-            self.heroelements = {
-                "Blaze": "Fire", "Infernia": "Fire", "Ember": "Fire", "Ignis": "Fire", "Vulcan": "Fire",
-                "Marina": "Water", "Tidal": "Water", "Cascade": "Water", "Aquaria": "Water", "Sirena": "Water",
-                "Terra": "Earth", "Boulder": "Earth", "Gaia": "Earth", "Quarrix": "Earth", "Petrus": "Earth",
-                "Zephyr": "Wind", "Cyclone": "Wind", "Aeris": "Wind", "Ventra": "Wind", "Skylar": "Wind",
-                "Volt": "Electric", "Spark": "Electric", "Thunderra": "Electric", "Zappia": "Electric",
-                "Storme": "Electric",
-                "Frost": "Ice", "Glaciel": "Ice", "Chilla": "Ice", "Cryonix": "Ice", "Shivera": "Ice",
-                "Lumina": "Light", "Radiant": "Light", "Solara": "Light", "Aethera": "Light", "Halo": "Light",
-                "Umbra": "Dark", "Nyx": "Dark", "Shadowe": "Dark", "Noctis": "Dark", "Eclipse": "Dark"
-            }
-            self.herohealth = {
-                "Blaze": "200", "Infernia": "200", "Ember": "100", "Ignis": "150", "Vulcan": "175",  # Fire
-                "Marina": "100", "Tidal": "100", "Cascade": "175", "Aquaria": "150", "Sirena": "200",  # Water
-                "Terra": "100", "Boulder": "100", "Gaia": "200", "Quarrix": "150", "Petrus": "175",  # Earth
-                "Zephyr": "200", "Cyclone": "100", "Aeris": "175", "Ventra": "100", "Skylar": "150",  # Wind
-                "Volt": "175", "Spark": "150", "Thunderra": "200", "Zappia": "100", "Storme": "100",  # Electric
-                "Frost": "100", "Glaciel": "150", "Chilla": "100", "Cryonix": "200", "Shivera": "175",  # Ice
-                "Lumina": "150", "Radiant": "100", "Solara": "175", "Aethera": "100", "Halo": "200",  # Light
-                "Umbra": "100", "Nyx": "175", "Shadowe": "100", "Noctis": "150", "Eclipse": "200"  # Dark
-            }
-            self.herostrenth = {
-                "Blaze": "100", "Infernia": "100", "Ember": "25", "Ignis": "50", "Vulcan": "75",  # Fire
-                "Marina": "25", "Tidal": "25", "Cascade": "75", "Aquaria": "50", "Sirena": "100",  # Water
-                "Terra": "25", "Boulder": "25", "Gaia": "100", "Quarrix": "50", "Petrus": "75",  # Earth
-                "Zephyr": "100", "Cyclone": "25", "Aeris": "75", "Ventra": "25", "Skylar": "50",  # Wind
-                "Volt": "75", "Spark": "50", "Thunderra": "100", "Zappia": "25", "Storme": "25",  # Electric
-                "Frost": "25", "Glaciel": "50", "Chilla": "25", "Cryonix": "100", "Shivera": "75",  # Ice
-                "Lumina": "50", "Radiant": "25", "Solara": "75", "Aethera": "25", "Halo": "100",  # Light
-                "Umbra": "25", "Nyx": "75", "Shadowe": "25", "Noctis": "50", "Eclipse": "100"  # Dark
-            }
-            self.weapons = [
-                "Excalibur", "Flametongue", "Blade of Inferno", "Molten Edge", "Lava Cleaver",  # Sword
-                "Aqua Harpoon", "Poseidon's Spear", "Coral Lance", "Tidal Pike", "Marine Javelin",  # Spear
-                "Rock Crusher", "Earthsplitter", "Terra Mace", "Stone Maul", "Boulder Hammer",  # Axe
-                "Zephyr Bow", "Storm Bow", "Gale Shooter", "Tempest Quiver", "Windrunner Bow",  # Bow
-                "Lightning Rod", "Thunder Staff", "Volt Wand", "Storm Orb", "Electro Scepter",  # Staff
-                "Frost Fang", "Ice Fang", "Glacier Blade", "Cryo Dagger", "Shiver Knife",  # Dagger
-                "Radiant Shield", "Halo Guard", "Solar Defender", "Light Barrier", "Aether Buckler",  # Shield
-                "Umbra Scythe", "Nyx Reaper", "Shadow Blade", "Noctis Saber", "Eclipse Cutter"  # Scythe
-            ]
-            self.weaponprob = [1, 20, 5, 10, 20,  # Sword
-                               20, 1, 10, 5, 20,  # Spear
-                               20, 1, 5, 20, 10,  # Axe
-                               1, 5, 20, 10, 20,  # Bow
-                               20, 20, 10, 5, 1,  # Staff
-                               5, 20, 10, 10, 1,  # Dagger
-                               20, 1, 5, 10, 20,  # Shield
-                               20, 5, 10, 20, 1]  # Scythe
-            self.weaponabilities = {
-                "Excalibur": "Flame Sever", "Flametongue": "None", "Blade of Inferno": "None", "Molten Edge": "None",
-                "Lava Cleaver": "None",
-                "Aqua Harpoon": "None", "Poseidon's Spear": "None", "Coral Lance": "None", "Tidal Pike": "None",
-                "Marine Javelin": "Tidal Fury",
-                "Rock Crusher": "None", "Earthsplitter": "None", "Terra Mace": "None", "Stone Maul": "None",
-                "Boulder Hammer": "Rockfall",
-                "Zephyr Bow": "None", "Storm Bow": "None", "Gale Shooter": "None", "Tempest Quiver": "None",
-                "Windrunner Bow": "Windstrike",
-                "Lightning Rod": "None", "Thunder Staff": "None", "Volt Wand": "None", "Storm Orb": "None",
-                "Electro Scepter": "Thunderstorm",
-                "Frost Fang": "None", "Ice Fang": "None", "Glacier Blade": "None", "Cryo Dagger": "None",
-                "Shiver Knife": "Ice Storm",
-                "Radiant Shield": "None", "Halo Guard": "None", "Solar Defender": "None", "Light Barrier": "None",
-                "Aether Buckler": "Aether Guard",
-                "Umbra Scythe": "None", "Nyx Reaper": "None", "Shadow Blade": "None", "Noctis Saber": "None",
-                "Eclipse Cutter": "Shadow Cleaver"
-            }
-            self.weapondmg = {
-                "Excalibur": "100", "Flametongue": "25", "Blade of Inferno": "75", "Molten Edge": "50",
-                "Lava Cleaver": "25",
-                "Aqua Harpoon": "25", "Poseidon's Spear": "75", "Coral Lance": "25", "Tidal Pike": "50",
-                "Marine Javelin": "100",
-                "Rock Crusher": "25", "Earthsplitter": "75", "Terra Mace": "50", "Stone Maul": "25",
-                "Boulder Hammer": "100",
-                "Zephyr Bow": "75", "Storm Bow": "50", "Gale Shooter": "25", "Tempest Quiver": "50",
-                "Windrunner Bow": "100",
-                "Lightning Rod": "50", "Thunder Staff": "75", "Volt Wand": "25", "Storm Orb": "50",
-                "Electro Scepter": "100",
-                "Frost Fang": "75", "Ice Fang": "50", "Glacier Blade": "25", "Cryo Dagger": "50", "Shiver Knife": "100",
-                "Radiant Shield": "75", "Halo Guard": "50", "Solar Defender": "25", "Light Barrier": "50",
-                "Aether Buckler": "100",
-                "Umbra Scythe": "75", "Nyx Reaper": "50", "Shadow Blade": "25", "Noctis Saber": "50",
-                "Eclipse Cutter": "100"
-            }
-            self.weapontypes = {
-                "Excalibur": "Sword", "Flametongue": "Sword", "Blade of Inferno": "Sword", "Molten Edge": "Sword",
-                "Lava Cleaver": "Sword",
-                "Aqua Harpoon": "Spear", "Poseidon's Spear": "Spear", "Coral Lance": "Spear", "Tidal Pike": "Spear",
-                "Marine Javelin": "Spear",
-                "Rock Crusher": "Axe", "Earthsplitter": "Axe", "Terra Mace": "Axe", "Stone Maul": "Axe",
-                "Boulder Hammer": "Axe",
-                "Zephyr Bow": "Bow", "Storm Bow": "Bow", "Gale Shooter": "Bow", "Tempest Quiver": "Bow",
-                "Windrunner Bow": "Bow",
-                "Lightning Rod": "Staff", "Thunder Staff": "Staff", "Volt Wand": "Staff", "Storm Orb": "Staff",
-                "Electro Scepter": "Staff",
-                "Frost Fang": "Dagger", "Ice Fang": "Dagger", "Glacier Blade": "Dagger", "Cryo Dagger": "Dagger",
-                "Shiver Knife": "Dagger",
-                "Radiant Shield": "Shield", "Halo Guard": "Shield", "Solar Defender": "Shield",
-                "Light Barrier": "Shield", "Aether Buckler": "Shield",
-                "Umbra Scythe": "Scythe", "Nyx Reaper": "Scythe", "Noctis Saber": "Scythe",
-                "Eclipse Cutter": "Scythe"
-            }
-            self.window.withdraw()
-            self.modmenu = Modmenu(self.window, self.userid, self.hero, self.weapons,
-                                   self.heroprob, self.weaponprob, self.heroelements,
-                                   self.herohealth, self.herostrenth, self.weapontypes,
-                                   self.weapondmg, self.weaponabilities, self)
-        else:
-            messagebox.showerror("Access Denied", "You do not have permission to access the Mod Menu.")
-
-    def backtomainmenu(self, user_id):
-        self.window.destroy()
-        self.mainmenu = MainMenu(self.window.master, user_id)
-        self.mainmenu.window.deiconify()
 
     def backtoentrance(self):
         self.window.destroy()
