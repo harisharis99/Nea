@@ -885,13 +885,13 @@ class Modmenu(BaseApp):
             if newgold < 0:
                 messagebox.showerror("Error", "Gold cannot be negative!")
                 return
-            
+
             conn = sqlite3.connect('user_login.db')
             cursor = conn.cursor()
             cursor.execute('UPDATE player_data SET gold = ? WHERE user_id = ?', (newgold, self.userid))
             conn.commit()
             conn.close()
-            
+
             messagebox.showinfo("Success", f"Gold updated to {newgold}")
         except ValueError:
             messagebox.showerror("Error", "Please enter a valid number!")
@@ -1284,31 +1284,49 @@ class Inventory(BaseApp):
 
         # Load heroes
         heroes = self.db_manager.get_hero_inventory(self.userid)
-        for hero in heroes:
-            hero_id, name, element, health, strength, rarity, equipped = hero
-            frame = ctk.CTkFrame(self.hero_frame)
-            frame.pack(pady=5, padx=5, fill="x")
+        conn = sqlite3.connect('user_login.db')
+        cursor = conn.cursor()
+        
+        try:
+            for hero in heroes:
+                hero_id, name, element, health, strength, rarity, equipped = hero
+                frame = ctk.CTkFrame(self.hero_frame)
+                frame.pack(pady=5, padx=5, fill="x")
 
-            color = "gray"
-            if equipped:
-                color = "green"
+                color = "gray"
+                if equipped:
+                    color = "green"
 
-            color = self.get_rarity_color(rarity)
-            level = hero[7]  # Get level from DB
-            scaled_health = int(int(health) * (1 + (level * 0.1)))  # 10% increase per level
-            scaled_strength = int(int(strength) * (1 + (level * 0.1)))  # 10% increase per level
-            info = f"{name} | Lvl {level} | HP: {scaled_health} | STR: {scaled_strength}"
-            label = ctk.CTkLabel(frame, text=info, text_color=color)
-            label.pack(side="left", padx=5)
+                color = self.get_rarity_color(rarity)
+                
+                # Get hero level from database
+                cursor.execute('SELECT level FROM hero_inventory WHERE id = ?', (hero_id,))
+                level_result = cursor.fetchone()
+                level = level_result[0] if level_result and level_result[0] is not None else 1
+                
+                scaled_health = int(int(health) * (1 + (level * 0.1)))  # 10% increase per level
+                scaled_strength = int(int(strength) * (1 + (level * 0.1)))  # 10% increase per level
+                info = f"{name} | Lvl {level} | HP: {scaled_health} | STR: {scaled_strength}"
+                label = ctk.CTkLabel(frame, text=info, text_color=color)
+                label.pack(side="left", padx=5)
 
-            level_cost = 1000 * (level ** 2)  # Exponential cost increase
-            level_btn = ctk.CTkButton(frame, text=f"Level Up ({level_cost} gold)", 
-                                     width=120, command=lambda h_id=hero_id, cost=level_cost: self.level_up_hero(h_id, cost))
-            level_btn.pack(side="right", padx=5)
+                # Calculate level up cost based on current level
+                level_cost = 1000 * (level ** 2)  # Exponential cost increase
+                cursor.execute('SELECT gold FROM player_data WHERE user_id = ?', (self.userid,))
+                current_gold = cursor.fetchone()[0]
 
-            equip_btn = ctk.CTkButton(frame, text="Equip" if not equipped else "Equipped",
-                                      width=100, command=lambda h_id=hero_id: self.equip_hero(h_id))
-            equip_btn.pack(side="right", padx=5)
+                # Set button color based on whether player can afford level up
+                button_color = "green" if current_gold >= level_cost else "red"
+                level_btn = ctk.CTkButton(frame, text=f"Level Up ({level_cost} gold)", 
+                                         width=120, fg_color=button_color,
+                                         command=lambda h_id=hero_id, cost=level_cost: self.level_up_hero(h_id, cost))
+                level_btn.pack(side="right", padx=5)
+
+                equip_btn = ctk.CTkButton(frame, text="Equip" if not equipped else "Equipped",
+                                          width=100, command=lambda h_id=hero_id: self.equip_hero(h_id))
+                equip_btn.pack(side="right", padx=50)
+        except Exception as e:
+            print(f"Error loading heroes: {e}")
 
         # Load weapons
         weapons = self.db_manager.get_weapon_inventory(self.userid)
@@ -1347,7 +1365,34 @@ class Inventory(BaseApp):
         }
         return rarity_colors.get(rarity, "gray")
 
+    def level_up_hero(self, hero_id, cost):
+        try:
+            conn = sqlite3.connect('user_login.db')
+            cursor = conn.cursor()
 
+            # Check if user has enough gold
+            cursor.execute('SELECT gold FROM player_data WHERE user_id = ?', (self.userid,))
+            current_gold = cursor.fetchone()[0]
+
+            if current_gold < cost:
+                messagebox.showerror("Error", "Not enough gold!")
+                return
+
+            # Deduct gold and increase hero level
+            cursor.execute('UPDATE player_data SET gold = gold - ? WHERE user_id = ?', (cost, self.userid))
+            cursor.execute('UPDATE hero_inventory SET level = level + 1 WHERE id = ?', (hero_id,))
+            conn.commit()
+
+            # Refresh inventory display
+            self.load_inventory()
+            messagebox.showinfo("Success", "Hero leveled up!")
+
+        except sqlite3.Error as e:
+            print(f"Database error: {e}")
+            messagebox.showerror("Error", "Failed to level up hero")
+        finally:
+            if conn:
+                conn.close()
 
     def backtomainmenu(self):
         self.window.destroy()
@@ -1523,24 +1568,24 @@ class Users(BaseApp):
         try:
             conn = sqlite3.connect('user_login.db')
             cursor = conn.cursor()
-            
+
             # Check if user has enough gold
             cursor.execute('SELECT gold FROM player_data WHERE user_id = ?', (self.userid,))
             current_gold = cursor.fetchone()[0]
-            
+
             if current_gold < cost:
                 messagebox.showerror("Error", "Not enough gold!")
                 return
-            
+
             # Deduct gold and increase hero level
             cursor.execute('UPDATE player_data SET gold = gold - ? WHERE user_id = ?', (cost, self.userid))
             cursor.execute('UPDATE hero_inventory SET level = level + 1 WHERE id = ?', (hero_id,))
             conn.commit()
-            
+
             # Refresh inventory display
             self.load_inventory()
             messagebox.showinfo("Success", "Hero leveled up!")
-            
+
         except sqlite3.Error as e:
             print(f"Database error: {e}")
             messagebox.showerror("Error", "Failed to level up hero")
