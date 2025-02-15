@@ -268,8 +268,52 @@ class Database:
         self.updatedb('level', level, user_id)
 
     @staticmethod
-    def calculate_ability_damage(basedamage):
-        return basedamage * 25
+    def calculate_damage(user_id, is_ability=False):
+        try:
+            conn = sqlite3.connect('user_login.db')
+            cursor = conn.cursor()
+            
+            # Get hero's current strength and level
+            cursor.execute('SELECT strength, level FROM hero_inventory WHERE user_id = ? AND equipped = 1', (user_id,))
+            hero_data = cursor.fetchone()
+            hero_strength = int(hero_data[0]) if hero_data else 5
+            hero_level = int(hero_data[1]) if hero_data else 1
+            
+            # Get weapon's damage
+            cursor.execute('SELECT damage FROM weapon_inventory WHERE user_id = ? AND equipped = 1', (user_id,))
+            weapon_data = cursor.fetchone()
+            weapon_damage = int(weapon_data[0]) if weapon_data else 5
+            
+            # Calculate scaled strength based on hero level
+            scaled_strength = int(hero_strength * (1 + (hero_level * 0.1)))
+            
+            # Calculate base damage
+            base_damage = max(25, scaled_strength * weapon_damage)
+            
+            # Add level scaling
+            level_scaling = (1 + (hero_level ** 1.2) / 10)
+            
+            # Add randomness (90% - 120% of base damage)
+            random_factor = random.uniform(0.9, 1.2)
+            
+            # Critical hit chance (10% chance to double damage)
+            crit_multiplier = 2 if random.random() < 0.1 else 1
+            
+            # Calculate final damage
+            damage = int(base_damage * level_scaling * random_factor * crit_multiplier)
+            
+            # If this is an ability, multiply by 25
+            if is_ability:
+                damage *= 25
+                
+            return damage
+            
+        except Exception as e:
+            print(f"Error calculating damage: {e}")
+            return 25  # Return minimum damage on error
+        finally:
+            if 'conn' in locals():
+                conn.close()
 
     @staticmethod
     def calculatehealth(level, basehealth, element):
@@ -278,9 +322,26 @@ class Database:
             level = int(level) if level else 1
             basehealth = int(basehealth) if basehealth and str(basehealth).isdigit() else 100
 
-            # Base health scaling with level
-            healthscaling = 1 + (level * 0.1)  # 10% increase per level
-            scaledhealth = basehealth * healthscaling
+            # Get hero level and health from hero inventory
+            conn = sqlite3.connect('user_login.db')
+            cursor = conn.cursor()
+
+            cursor.execute('SELECT level, health FROM hero_inventory WHERE user_id = ? AND equipped = 1', (1,))
+            hero_data = cursor.fetchone()
+
+            if hero_data:
+                hero_level = int(hero_data[0])
+                hero_base_health = int(hero_data[1])
+            else:
+                hero_level = 1
+                hero_base_health = basehealth
+
+            conn.close()
+
+            # Scale hero's base health with both character and hero level
+            char_scaling = 1 + (level * 0.1)  # 10% increase per character level
+            hero_scaling = 1 + (hero_level * 0.15)  # 15% increase per hero level
+            scaledhealth = hero_base_health * char_scaling * hero_scaling
 
             # Element bonuses
             elementmultipliers = {
@@ -1135,9 +1196,18 @@ class Summoning(BaseApp):
         # Check if hero already exists in inventory
         with sqlite3.connect('user_login.db') as conn:
             cursor = conn.cursor()
-            cursor.execute('SELECT id FROM hero_inventory WHERE user_id = ? AND hero_name = ?',
+            cursor.execute('SELECT id, level FROM hero_inventory WHERE user_id = ? AND hero_name = ?',
                            (self.userid, result))
-            if cursor.fetchone():
+            existing_hero = cursor.fetchone()
+            if existing_hero:
+                # Get existing hero's level and show scaled stats
+                hero_level = existing_hero[1]
+                scaled_health = int(int(health) * (1 + (hero_level * 0.1)))
+                scaled_strength = int(int(strength) * (1 + (hero_level * 0.1)))
+                self.heroresult.configure(text=f"{result}", text_color=hrarity)
+                self.elementresult.configure(text=f"Element: {element}", text_color=hrarity)
+                self.healthresult.configure(text=f"Health: {scaled_health}", text_color=hrarity)
+                self.strenthgresult.configure(text=f"Strength: {scaled_strength}", text_color=hrarity)
                 return
 
         # Add hero to inventory and auto-equip it
@@ -1149,10 +1219,19 @@ class Summoning(BaseApp):
             if latest_hero_id:
                 self.db_manager.equip_hero(self.userid, latest_hero_id)
 
+                # Get hero level and calculate scaled stats
+                cursor.execute('SELECT level FROM hero_inventory WHERE id = ?', (latest_hero_id,))
+                level_result = cursor.fetchone()
+                level = level_result[0] if level_result else 1
+
+                # Calculate scaled stats (10% increase per level)
+                scaled_health = int(int(health) * (1 + (level * 0.1)))
+                scaled_strength = int(int(strength) * (1 + (level * 0.1)))
+
         self.heroresult.configure(text=f"{result}", text_color=hrarity)
         self.elementresult.configure(text=f"Element: {element}", text_color=hrarity)
-        self.healthresult.configure(text=f"Health: {health}", text_color=hrarity)
-        self.strenthgresult.configure(text=f"Strength: {strength}", text_color=hrarity)
+        self.healthresult.configure(text=f"Health: {scaled_health}", text_color=hrarity)
+        self.strenthgresult.configure(text=f"Strength: {scaled_strength}", text_color=hrarity)
 
         if prob == 1:
             self.spinconformation(self.summonhero)
@@ -1226,25 +1305,63 @@ class Summoning(BaseApp):
         self.inventory = Inventory(self.window, self.userid)
 
     def updatedisplay(self):
-        result = getcsummon(self.userid)
-        if result:
-            chero, celement, chealth, cstrenght, hrarity, cweapon, cweapontype, cweapondamage, cweaponability, wrarity = result
-            hrarity = hrarity if hrarity else "gray"  # Set default color if None
-            wrarity = wrarity if wrarity else "gray"  # Set default color if None
-            self.heroresult.configure(text=f"{chero if chero else 'None'}", text_color=hrarity)
-            self.elementresult.configure(text=f"Element: {celement if celement else 'None'}", text_color=hrarity)
-            self.healthresult.configure(text=f"Health: {chealth if chealth else 'None'}", text_color=hrarity)
-            self.strenthgresult.configure(text=f"Strength: {cstrenght if cstrenght else 'None'}", text_color=hrarity)
-
-            self.weaponresult.configure(text=f"{cweapon if cweapon else 'None'}", text_color=wrarity)
-            self.typeresult.configure(text=f"Type: {cweapontype if cweapontype else 'None'}", text_color=wrarity)
-            self.damageresult.configure(text=f"Damage: {cweapondamage if cweapondamage else 'None'}",
-                                        text_color=wrarity)
-            self.abilityresult.configure(text=f"Ability: {cweaponability if cweaponability else 'None'}",
-                                         text_color=wrarity)
-        else:
-            # Handle the case where getcsummon() returns None
-            self.heroresult.configure(text="None", text_color="gray")
+        try:
+            conn = sqlite3.connect('user_login.db')
+            cursor = conn.cursor()
+            
+            # Get equipped hero stats
+            cursor.execute('''
+                SELECT hero_name, element, health, strength, rarity, level 
+                FROM hero_inventory 
+                WHERE user_id = ? AND equipped = 1
+            ''', (self.userid,))
+            hero_result = cursor.fetchone()
+            
+            # Get equipped weapon stats
+            cursor.execute('''
+                SELECT weapon_name, weapon_type, damage, ability, rarity
+                FROM weapon_inventory
+                WHERE user_id = ? AND equipped = 1
+            ''', (self.userid,))
+            weapon_result = cursor.fetchone()
+            
+            if hero_result:
+                hero_name, element, base_health, base_strength, hrarity, level = hero_result
+                level = int(level) if level else 1
+                
+                # Calculate scaled stats based on level
+                scaled_health = int(int(base_health) * (1 + (level * 0.1)))
+                scaled_strength = int(int(base_strength) * (1 + (level * 0.1)))
+                
+                hrarity = hrarity if hrarity else "gray"
+                self.heroresult.configure(text=f"{hero_name}", text_color=hrarity)
+                self.elementresult.configure(text=f"Element: {element}", text_color=hrarity)
+                self.healthresult.configure(text=f"Health: {scaled_health}", text_color=hrarity)
+                self.strenthgresult.configure(text=f"Strength: {scaled_strength}", text_color=hrarity)
+            else:
+                self.heroresult.configure(text="None", text_color="gray")
+                self.elementresult.configure(text="Element: None", text_color="gray")
+                self.healthresult.configure(text="Health: None", text_color="gray")
+                self.strenthgresult.configure(text="Strength: None", text_color="gray")
+            
+            if weapon_result:
+                weapon_name, weapon_type, damage, ability, wrarity = weapon_result
+                wrarity = wrarity if wrarity else "gray"
+                self.weaponresult.configure(text=f"{weapon_name}", text_color=wrarity)
+                self.typeresult.configure(text=f"Type: {weapon_type}", text_color=wrarity)
+                self.damageresult.configure(text=f"Damage: {damage}", text_color=wrarity)
+                self.abilityresult.configure(text=f"Ability: {ability}", text_color=wrarity)
+            else:
+                self.weaponresult.configure(text="None", text_color="gray")
+                self.typeresult.configure(text="Type: None", text_color="gray")
+                self.damageresult.configure(text="Damage: None", text_color="gray")
+                self.abilityresult.configure(text="Ability: None", text_color="gray")
+                
+        except sqlite3.Error as e:
+            print(f"Database error: {e}")
+        finally:
+            if conn:
+                conn.close()
 
 
 class Inventory(BaseApp):
@@ -1286,7 +1403,7 @@ class Inventory(BaseApp):
         heroes = self.db_manager.get_hero_inventory(self.userid)
         conn = sqlite3.connect('user_login.db')
         cursor = conn.cursor()
-        
+
         try:
             for hero in heroes:
                 hero_id, name, element, health, strength, rarity, equipped = hero
@@ -1298,12 +1415,12 @@ class Inventory(BaseApp):
                     color = "green"
 
                 color = self.get_rarity_color(rarity)
-                
+
                 # Get hero level from database
                 cursor.execute('SELECT level FROM hero_inventory WHERE id = ?', (hero_id,))
                 level_result = cursor.fetchone()
                 level = level_result[0] if level_result and level_result[0] is not None else 1
-                
+
                 scaled_health = int(int(health) * (1 + (level * 0.1)))  # 10% increase per level
                 scaled_strength = int(int(strength) * (1 + (level * 0.1)))  # 10% increase per level
                 info = f"{name} | Lvl {level} | HP: {scaled_health} | STR: {scaled_strength}"
@@ -1385,7 +1502,7 @@ class Inventory(BaseApp):
 
             # Refresh inventory display
             self.load_inventory()
-            messagebox.showinfo("Success", "Hero leveled up!")
+
 
         except sqlite3.Error as e:
             print(f"Database error: {e}")
@@ -1969,39 +2086,9 @@ class SiegeMenu(BaseApp):
         self.returnbutton.pack(pady=20)
 
     def calculatedamage(self):
-        conn = sqlite3.connect('user_login.db')
-        cursor = conn.cursor()
-
-        # Fetch cstrenght, cweapondamage, and level for the given user_id
-        cursor.execute('''
-        SELECT cstrenght, cweapondamage, level FROM player_data WHERE user_id = ?
-        ''', (self.userid,))
-        result = cursor.fetchone()
-        conn.close()
-
-        if result:
-            cstrenght, cweapondamage, level = result
-            # Convert values to integers
-            cstrenght = int(cstrenght) if cstrenght else 5
-            cweapondamage = int(cweapondamage) if cweapondamage else 5
-            level = int(level) if level else 0
-
-            # Define the formula to calculate damage with minimum base damage
-            basedamage = max(25, cstrenght * cweapondamage)  # Minimum base damage of 25 (5 * 5)
-            levelscaling = (1 + (level ** 1.2) / 10)  # Exponential scaling with level
-            randomfactor = random.uniform(0.9, 1.2)  # Adds randomness (90% - 120% of calculated value)
-            criticalhit = 2 if random.random() < 0.1 else 1  # 10% chance to double damage
-
-            # Final damage calculation
-            damage = math.floor(basedamage * levelscaling * randomfactor * criticalhit)
-
-            # Update the damageresult label with the calculated damage
-            self.damageresult.configure(text=f"Damage: {damage}")
-
-            # Update currentdamage in the database
-            setcurrentdamage(self.userid, str(damage))
-        else:
-            self.damageresult.configure(text="Damage: Not Measured")
+        damage = Database.calculate_damage(self.userid)
+        self.damageresult.configure(text=f"Damage: {damage}")
+        setcurrentdamage(self.userid, str(damage))
 
     def levelup(self, user_id):
         conn = sqlite3.connect('user_login.db')
@@ -2109,19 +2196,26 @@ class Battle(BaseApp):
 
 class Quest(BaseApp):
     def __init__(self, main, user_id):
-        super().__init__(main, user_id, "Quest", "400x300")
-
-        self.label.pack(pady=20)
-
-        self.startquestbutton = ctk.CTkButton(self.window, text="Start Quest", fg_color="white", hover_color="#a5cd9d",
-                                              text_color="#333333", font=("Helvetica", 20), command=self.startquest)
-        self.startquestbutton.pack(pady=20)
-
-        self.returnbutton = ctk.CTkButton(self.window, text="Return to Battle Menu", fg_color="white",
-                                          hover_color="#a5cd9d", text_color="#333333", font=("Helvetica", 20),
-                                          command=self.backtobattlemenu)
-        self.returnbutton.pack(pady=20)
-
+        super().__init__(main, user_id, "Quest", "400x600")
+        # Start Battle Button
+        self.start_battle_btn = ctk.CTkButton(self.window, text="Start Battle", fg_color="white",
+                                               hover_color="#a5cd9d",
+                                               text_color="#333333", font=("Arial", 15), command=self.startquest)
+        self.start_battle_btn.pack(pady=20)
+        # Damage Test Button
+        self.damage_test_btn = ctk.CTkButton(self.window, text="Test Damage", fg_color="white",
+                                              hover_color="#a5cd9d",
+                                              text_color="#333333", font=("Arial", 15), command=self.test_damage)
+        self.damage_test_btn.pack(pady=10)
+        # Damage Display Label
+        self.damage_display_label = ctk.CTkLabel(self.window, text="Damage: ", fg_color="#96c4df",
+                                                  text_color="#333333", font=("Arial", 15))
+        self.damage_display_label.pack(pady=10)
+    def test_damage(self):
+        damage = Database.calculate_damage(self.userid)
+        self.damage_display_label.configure(text=f"Damage: {damage}")
+        setcurrentdamage(self.userid, str(damage))
+        
     def startquest(self):
         conn = None
         try:
@@ -2281,9 +2375,18 @@ class Battles(BaseApp):
 
         self.updatehealthlabels()
 
+        # Add damage display label
+        self.damagedisplaylabel = ctk.CTkLabel(self.window, text="Calculating damage...", 
+                                               fg_color="#96c4df", text_color="#333333",
+                                               font=("Helvetica", 15))
+        self.damagedisplaylabel.pack(pady=10)
+        
         self.attackbutton = ctk.CTkButton(self.window, text="Attack", fg_color="white", hover_color="#a5cd9d",
                                           text_color="#333333", font=("Helvetica", 20), command=self.attack)
         self.attackbutton.pack(pady=20)
+        
+        # Start damage calculation update
+        self.updatedamagedisplay()
 
         self.returnbutton = ctk.CTkButton(self.window, text="Return to Quest", fg_color="white", hover_color="#a5cd9d",
                                           text_color="#333333", font=("Helvetica", 20), command=self.returntoquest)
@@ -2314,6 +2417,44 @@ class Battles(BaseApp):
                 label.configure(text=f"Enemy {i + 1} Health: {enemy['health']}/{enemy['max_health']}")
             else:
                 label.configure(text="No more enemies")
+
+    def updatedamagedisplay(self):
+        try:
+            conn = sqlite3.connect('user_login.db')
+            cursor = conn.cursor()
+            
+            # Get hero's current strength and level
+            cursor.execute('SELECT strength, level FROM hero_inventory WHERE user_id = ? AND equipped = 1', (self.userid,))
+            hero_data = cursor.fetchone()
+            hero_strength = int(hero_data[0]) if hero_data else 5
+            hero_level = int(hero_data[1]) if hero_data else 1
+            
+            # Get weapon's damage
+            cursor.execute('SELECT damage FROM weapon_inventory WHERE user_id = ? AND equipped = 1', (self.userid,))
+            weapon_data = cursor.fetchone()
+            weapon_damage = int(weapon_data[0]) if weapon_data else 5
+            
+            # Calculate scaled strength based on hero level
+            scaled_strength = int(hero_strength * (1 + (hero_level * 0.1)))
+            
+            # Calculate base damage
+            base_damage = max(25, scaled_strength * weapon_damage)
+            
+            # Calculate damage range (90%-120% of base)
+            min_damage = int(base_damage * 0.9)
+            max_damage = int(base_damage * 1.2)
+            
+            # Display damage range with crit possibility
+            self.damagedisplaylabel.configure(text=f"Attack Damage: {min_damage}-{max_damage} (x2 on crit)")
+            
+        except Exception as e:
+            self.damagedisplaylabel.configure(text="Error calculating damage")
+        finally:
+            if 'conn' in locals():
+                conn.close()
+            
+        # Update every second
+        self.window.after(1000, self.updatedamagedisplay)
 
     def updatetimer(self):
         if not self.abilityready:
@@ -2354,14 +2495,8 @@ class Battles(BaseApp):
             basedamage = max(25, userstrength * userweapondamage)  # Ensure minimum base damage of 25
 
             # Calculate full damage like in battle method
-            levelscaling = (1 + (level ** 1.2) / 10)
-            randomfactor = random.uniform(0.9, 1.2)
-            criticalhit = 2 if random.random() < 0.1 else 1
-            # Calculate normal attack damage first
-            normaldamage = int(basedamage * levelscaling * randomfactor * criticalhit)
-
-            # Multiply by 25 for ability damage
-            finaldamage = normaldamage * 25
+            # Calculate ability damage using centralized method
+            finaldamage = Database.calculate_damage(self.userid, is_ability=True)
 
             # Deal damage to enemy
             enemy["health"] -= finaldamage
@@ -2410,86 +2545,51 @@ class Battles(BaseApp):
 
         self.battle(enemy)
 
-    def close_leaderboard(self):
-        self.leaderboard_window.destroy()
-        del self.leaderboard_window
 
-        enemy = self.enemies[self.currentenemy]
-        if self.userhealth <= 0:
-            messagebox.showerror("Defeat", "You lost the battle. Try again!")
-            self.window.destroy()
-            self.questwindow.deiconify()
-            return
-
-        self.battle(enemy)
 
     def battle(self, enemy):
-        result = None
-        conn = None
         try:
-            conn = sqlite3.connect('user_login.db')
-            cursor = conn.cursor()
+            # Calculate damage using the centralized method
+            userdamage = Database.calculate_damage(self.userid)
+            
+            # Prevent extreme damage values
+            userdamage = max(25, min(userdamage, enemy["max_health"] // 2))
+            
+            print(f"Battle started. Enemy health: {enemy['health']}, Damage dealt: {userdamage}")
+            
+            # Apply damage to enemy
+            enemy["health"] -= userdamage
+            if enemy["health"] <= 0:
+                enemy["health"] = 0
+                self.currentenemy += 1
+                self.updatehealthlabels()
 
-            try:
-                cursor.execute('SELECT cstrenght, cweapondamage, celement, level FROM player_data WHERE user_id = ?',
-                               (self.userid,))
-                result = cursor.fetchone()
-
-                if not result:
-                    print(f"Battle error: No player data found for user {self.userid}")
-                    messagebox.showerror("Error", "Player data not found")
+                if self.currentenemy >= len(self.enemies):
+                    print(f"Battle Victory! All enemies defeated by user {self.userid}")
+                    self.levelupnext(self.userid)
+                    self.window.destroy()
+                    self.questwindow.deiconify()
                     return
 
-                # Ensure none of the values are None
-                userstrength, userweapondamage, userelement, level = result
-                if any(val is None for val in [userstrength, userweapondamage, userelement, level]):
-                    userstrength = userstrength if userstrength is not None else '10'
-                    userweapondamage = userweapondamage if userweapondamage is not None else '10'
-                    userelement = userelement if userelement is not None else 'None'
-                    level = level if level is not None else '1'
-                    result = (userstrength, userweapondamage, userelement, level)
+            # Enemy counter-attack if still alive
+            if enemy["health"] > 0:
+                self.userhealth -= enemy["damage"]
+                print(f"Enemy dealt {enemy['damage']} damage. User health: {self.userhealth}")
+                if self.userhealth <= 0:
+                    self.userhealth = 0
+                    print(f"Battle Lost! User {self.userid} was defeated")
+                    messagebox.showerror("Defeat", "You lost the battle!")
+                    self.window.destroy()
+                    Quest(self.questwindow, self.userid)
+                    return
 
-                print(f"Battle started with enemy. Enemy health: {enemy['health']}")
-                print(
-                    f"Player stats loaded - Strength: {result[0]}, Weapon damage: {result[1]}, Element: {result[2]}, Level: {result[3]}")
-
-            except sqlite3.Error as e:
-                print(f"Database error during battle: {e}")
-                messagebox.showerror("Error", "Could not load player data")
-                return
-
+            self.updatehealthlabels()
+            
         except Exception as e:
-            print(f"Unexpected error in battle: {e}")
+            print(f"Battle error: {e}")
             messagebox.showerror("Error", "Battle system error")
-        finally:
-            if 'conn' in locals():
-                conn.close()
 
-        if result:
-            userstrength, userweapondamage, userelement, level = result
-            userstrength = int(userstrength) if userstrength and userstrength != 'None' else 5
-            userweapondamage = int(userweapondamage) if userweapondamage and userweapondamage != 'None' else 5
-            level = int(level) if level is not None else 1
-
-            # Calculate base damage with minimum of 5 * 5 = 25
-            basedamage = max(25, userstrength * userweapondamage)
-
-            # Apply level scaling
-            levelscaling = (1 + (level ** 1.2) / 10)
-
-            # Add randomness (90% - 120% of calculated value)
-            randomfactor = random.uniform(0.9, 1.2)
-
-            # Critical hit chance (10% chance to double damage)
-            criticalhit = 2 if random.random() < 0.1 else 1
-
-            # Enhanced damage calculation with diminishing returns
-            base_scaling = math.log(level + 1, 2) * 1.2  # Logarithmic scaling
-            diminished_level = min(levelscaling, base_scaling)
-            userdamage = int(basedamage * diminished_level * randomfactor * criticalhit)
-            # Prevent extreme damage values
-            userdamage = max(10, min(userdamage, enemy["max_health"] // 2))
-
+        # Remove unnecessary result check and dedent the code
             # User's turn to attack
             enemy["health"] -= userdamage
             if enemy["health"] <= 0:
