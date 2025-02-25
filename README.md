@@ -2211,6 +2211,11 @@ class Quest(BaseApp):
         self.damage_display_label = ctk.CTkLabel(self.window, text="Damage: ", fg_color="#96c4df",
                                                   text_color="#333333", font=("Arial", 15))
         self.damage_display_label.pack(pady=10)
+        # Back to Battle Menu Button
+        self.back_btn = ctk.CTkButton(self.window, text="Back to Battle Menu", fg_color="white",
+                                      hover_color="#a5cd9d",
+                                      text_color="#333333", font=("Arial", 15), command=self.backtobattlemenu)
+        self.back_btn.pack(pady=20)
     def test_damage(self):
         damage = Database.calculate_damage(self.userid)
         self.damage_display_label.configure(text=f"Damage: {damage}")
@@ -2381,9 +2386,22 @@ class Battles(BaseApp):
                                                font=("Helvetica", 15))
         self.damagedisplaylabel.pack(pady=10)
         
-        self.attackbutton = ctk.CTkButton(self.window, text="Attack", fg_color="white", hover_color="#a5cd9d",
-                                          text_color="#333333", font=("Helvetica", 20), command=self.attack)
-        self.attackbutton.pack(pady=20)
+        # Create frame for attack buttons
+        self.attack_buttons_frame = ctk.CTkFrame(self.window, fg_color="#96c4df")
+        self.attack_buttons_frame.pack(pady=10)
+        
+        # Create attack buttons for each enemy
+        self.attack_buttons = []
+        for i in range(len(self.enemies)):
+            btn = ctk.CTkButton(self.attack_buttons_frame, 
+                               text=f"Attack Enemy {i+1}", 
+                               fg_color="white", 
+                               hover_color="#a5cd9d",
+                               text_color="#333333", 
+                               font=("Helvetica", 15), 
+                               command=lambda x=i: self.attack_enemy(x))
+            btn.pack(pady=5)
+            self.attack_buttons.append(btn)
         
         # Start damage calculation update
         self.updatedamagedisplay()
@@ -2405,6 +2423,18 @@ class Battles(BaseApp):
         self.timerlabel = ctk.CTkLabel(self.window, text="Ability Ready!", fg_color="#96c4df", text_color="#333333",
                                        font=("Helvetica", 15))
         self.timerlabel.pack(pady=5)
+
+        # Add switch character button
+        self.switch_char_button = ctk.CTkButton(
+            self.window,
+            text="Switch Character",
+            fg_color="blue",
+            hover_color="#0000CD",
+            text_color="white",
+            font=("Helvetica", 15),
+            command=self.show_team_selection
+        )
+        self.switch_char_button.pack(pady=10)
 
         # Start the timer update
         self.updatetimer()
@@ -2529,14 +2559,15 @@ class Battles(BaseApp):
             self.abilitybutton.configure(state="disabled", fg_color="gray")
             messagebox.showinfo("Ability Used!", f"Dealt {finaldamage} damage with ability!")
 
-    def attack(self):
-        if self.currentenemy >= len(self.enemies):
-            messagebox.showinfo("Victory!", "You have defeated all enemies!")
-            self.window.destroy()
-            self.questwindow.deiconify()
+    def attack_enemy(self, enemy_index):
+        if enemy_index >= len(self.enemies):
             return
-
-        enemy = self.enemies[self.currentenemy]
+            
+        enemy = self.enemies[enemy_index]
+        if enemy["health"] <= 0:
+            messagebox.showinfo("Note", "This enemy is already defeated!")
+            return
+            
         if self.userhealth <= 0:
             messagebox.showerror("Defeat", "You lost the battle. Try again!")
             self.window.destroy()
@@ -2544,8 +2575,61 @@ class Battles(BaseApp):
             return
 
         self.battle(enemy)
+        
+        # Check if all enemies are defeated
+        if all(e["health"] <= 0 for e in self.enemies):
+            messagebox.showinfo("Victory!", "You have defeated all enemies!")
+            self.levelupnext(self.userid)
+            self.window.destroy()
+            self.questwindow.deiconify()
 
 
+
+    def get_team_members(self):
+        with sqlite3.connect('user_login.db') as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT h.id, h.hero_name, h.element, h.health, h.strength, h.rarity, h.level
+                FROM team_slots t
+                JOIN hero_inventory h ON t.hero_id = h.id
+                WHERE t.user_id = ?
+                ORDER BY t.slot_number
+            ''', (self.userid,))
+            return cursor.fetchall()
+
+    def switch_character(self, hero_id):
+        with sqlite3.connect('user_login.db') as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                UPDATE hero_inventory SET equipped = 0 
+                WHERE user_id = ? AND equipped = 1
+            ''', (self.userid,))
+            cursor.execute('''
+                UPDATE hero_inventory SET equipped = 1 
+                WHERE id = ? AND user_id = ?
+            ''', (hero_id, self.userid))
+            conn.commit()
+        self.updatedamagedisplay()  # Refresh damage display with new character
+
+    def show_team_selection(self):
+        team_window = ctk.CTkToplevel(self.window)
+        team_window.title("Switch Character")
+        team_window.geometry("400x300")
+        
+        team_frame = ctk.CTkScrollableFrame(team_window, width=350, height=250)
+        team_frame.pack(pady=10)
+        
+        team_members = self.get_team_members()
+        for member in team_members:
+            hero_id, name, element, health, strength, rarity, level = member
+            btn = ctk.CTkButton(
+                team_frame,
+                text=f"{name} (Lvl {level}) - {element}",
+                command=lambda hid=hero_id: [self.switch_character(hid), team_window.destroy()],
+                fg_color="white",
+                text_color=rarity
+            )
+            btn.pack(pady=5)
 
     def battle(self, enemy):
         try:
