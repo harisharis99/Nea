@@ -132,6 +132,7 @@ class Database:
                 user_id INTEGER,
                 slot_number INTEGER,
                 hero_id INTEGER,
+                current_health INTEGER,
                 FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
                 FOREIGN KEY (hero_id) REFERENCES hero_inventory(id)
             )
@@ -272,42 +273,42 @@ class Database:
         try:
             conn = sqlite3.connect('user_login.db')
             cursor = conn.cursor()
-            
+
             # Get hero's current strength and level
             cursor.execute('SELECT strength, level FROM hero_inventory WHERE user_id = ? AND equipped = 1', (user_id,))
             hero_data = cursor.fetchone()
             hero_strength = int(hero_data[0]) if hero_data else 5
             hero_level = int(hero_data[1]) if hero_data else 1
-            
+
             # Get weapon's damage
             cursor.execute('SELECT damage FROM weapon_inventory WHERE user_id = ? AND equipped = 1', (user_id,))
             weapon_data = cursor.fetchone()
             weapon_damage = int(weapon_data[0]) if weapon_data else 5
-            
+
             # Calculate scaled strength based on hero level
             scaled_strength = int(hero_strength * (1 + (hero_level * 0.1)))
-            
+
             # Calculate base damage
             base_damage = max(25, scaled_strength * weapon_damage)
-            
+
             # Add level scaling
             level_scaling = (1 + (hero_level ** 1.2) / 10)
-            
+
             # Add randomness (90% - 120% of base damage)
             random_factor = random.uniform(0.9, 1.2)
-            
+
             # Critical hit chance (10% chance to double damage)
             crit_multiplier = 2 if random.random() < 0.1 else 1
-            
+
             # Calculate final damage
             damage = int(base_damage * level_scaling * random_factor * crit_multiplier)
-            
+
             # If this is an ability, multiply by 25
             if is_ability:
                 damage *= 25
-                
+
             return damage
-            
+
         except Exception as e:
             print(f"Error calculating damage: {e}")
             return 25  # Return minimum damage on error
@@ -946,6 +947,12 @@ class Modmenu(BaseApp):
             if newgold < 0:
                 messagebox.showerror("Error", "Gold cannot be negative!")
                 return
+            
+            # Limit gold to SQLite's maximum integer value
+            max_gold = 9223372036854775807  # SQLite's maximum signed INTEGER value
+            if newgold > max_gold:
+                messagebox.showerror("Error", "Gold value is too large!")
+                return
 
             conn = sqlite3.connect('user_login.db')
             cursor = conn.cursor()
@@ -1308,7 +1315,7 @@ class Summoning(BaseApp):
         try:
             conn = sqlite3.connect('user_login.db')
             cursor = conn.cursor()
-            
+
             # Get equipped hero stats
             cursor.execute('''
                 SELECT hero_name, element, health, strength, rarity, level 
@@ -1316,7 +1323,7 @@ class Summoning(BaseApp):
                 WHERE user_id = ? AND equipped = 1
             ''', (self.userid,))
             hero_result = cursor.fetchone()
-            
+
             # Get equipped weapon stats
             cursor.execute('''
                 SELECT weapon_name, weapon_type, damage, ability, rarity
@@ -1324,15 +1331,15 @@ class Summoning(BaseApp):
                 WHERE user_id = ? AND equipped = 1
             ''', (self.userid,))
             weapon_result = cursor.fetchone()
-            
+
             if hero_result:
                 hero_name, element, base_health, base_strength, hrarity, level = hero_result
                 level = int(level) if level else 1
-                
+
                 # Calculate scaled stats based on level
                 scaled_health = int(int(base_health) * (1 + (level * 0.1)))
                 scaled_strength = int(int(base_strength) * (1 + (level * 0.1)))
-                
+
                 hrarity = hrarity if hrarity else "gray"
                 self.heroresult.configure(text=f"{hero_name}", text_color=hrarity)
                 self.elementresult.configure(text=f"Element: {element}", text_color=hrarity)
@@ -1343,7 +1350,7 @@ class Summoning(BaseApp):
                 self.elementresult.configure(text="Element: None", text_color="gray")
                 self.healthresult.configure(text="Health: None", text_color="gray")
                 self.strenthgresult.configure(text="Strength: None", text_color="gray")
-            
+
             if weapon_result:
                 weapon_name, weapon_type, damage, ability, wrarity = weapon_result
                 wrarity = wrarity if wrarity else "gray"
@@ -1356,7 +1363,7 @@ class Summoning(BaseApp):
                 self.typeresult.configure(text="Type: None", text_color="gray")
                 self.damageresult.configure(text="Damage: None", text_color="gray")
                 self.abilityresult.configure(text="Ability: None", text_color="gray")
-                
+
         except sqlite3.Error as e:
             print(f"Database error: {e}")
         finally:
@@ -2040,13 +2047,18 @@ class TeamManagement(BaseApp):
     def assign_hero(self, slot, hero_id, name, rarity, window):
         with sqlite3.connect('user_login.db') as conn:
             cursor = conn.cursor()
+            # Get hero's base health
+            cursor.execute('SELECT health FROM hero_inventory WHERE id = ?', (hero_id,))
+            base_health = cursor.fetchone()[0]
+            
             cursor.execute('DELETE FROM team_slots WHERE user_id = ? AND slot_number = ?',
                            (self.userid, slot))
-            cursor.execute('INSERT INTO team_slots (user_id, slot_number, hero_id) VALUES (?, ?, ?)',
-                           (self.userid, slot, hero_id))
+            cursor.execute('''
+                INSERT INTO team_slots (user_id, slot_number, hero_id, current_health) 
+                VALUES (?, ?, ?, ?)''', (self.userid, slot, hero_id, base_health))
             conn.commit()
 
-        self.slots[slot]["label"].configure(text=name, text_color=rarity)
+        self.slots[slot]["label"].configure(text=f"{name} (HP: {base_health})", text_color=rarity)
         window.destroy()
 
     def backtobattle(self):
@@ -2220,7 +2232,7 @@ class Quest(BaseApp):
         damage = Database.calculate_damage(self.userid)
         self.damage_display_label.configure(text=f"Damage: {damage}")
         setcurrentdamage(self.userid, str(damage))
-        
+
     def startquest(self):
         conn = None
         try:
@@ -2230,6 +2242,18 @@ class Quest(BaseApp):
                 if not conn:
                     raise ConnectionError("Failed to establish database connection")
                 cursor = conn.cursor()
+
+                # Reset all team members' health to their max HP
+                cursor.execute('''
+                    UPDATE team_slots 
+                    SET current_health = (
+                        SELECT hi.health 
+                        FROM hero_inventory hi 
+                        WHERE hi.id = team_slots.hero_id
+                    )
+                    WHERE user_id = ?
+                ''', (self.userid,))
+                conn.commit()
             except sqlite3.Error as e:
                 raise ConnectionError(f"Database connection error: {str(e)}")
 
@@ -2360,15 +2384,49 @@ class Quest(BaseApp):
 class Battles(BaseApp):
     def __init__(self, questwindow, user_id, userhealth, enemies):
         super().__init__(questwindow, user_id, "Battle", "600x700")
-        self.userhealth = userhealth
-        self.usermaxhealth = userhealth
         self.enemies = enemies
         self.currentenemy = 0
-        self.questwindow = questwindow  # Store reference to quest window
-
-        self.userhealthlabel = ctk.CTkLabel(self.window, text=f"Your Health: {self.userhealth}/{self.usermaxhealth}",
-                                            fg_color="#96c4df", text_color="#333333", font=("Helvetica", 15))
+        self.questwindow = questwindow
+        self.current_hero_slot = 0
+        self.userhealth = userhealth
+        self.usermaxhealth = userhealth
+        
+        # Add user health label
+        self.userhealthlabel = ctk.CTkLabel(self.window, 
+            text=f"Your Health: {self.userhealth}/{self.usermaxhealth}", 
+            fg_color="#96c4df", 
+            text_color="#333333",
+            font=("Helvetica", 15))
         self.userhealthlabel.pack(pady=10)
+        
+        # Create frame for hero health bars
+        self.hero_health_frame = ctk.CTkFrame(self.window, fg_color="#96c4df")
+        self.hero_health_frame.pack(pady=10)
+        
+        self.hero_health_label = ctk.CTkLabel(
+            self.hero_health_frame,
+            text="Loading hero health...",
+            fg_color="#96c4df",
+            text_color="#333333",
+            font=("Helvetica", 15)
+        )
+        self.hero_health_label.pack(pady=5)
+        
+        # Load team members and their health
+        with sqlite3.connect('user_login.db') as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT ts.slot_number, h.hero_name, ts.current_health, h.health, h.rarity
+                FROM team_slots ts
+                JOIN hero_inventory h ON ts.hero_id = h.id
+                WHERE ts.user_id = ?
+                ORDER BY ts.slot_number
+            ''', (self.userid,))
+            self.team_data = cursor.fetchall()
+            
+        # Update health display
+        health_text = " | ".join([f"{name}: {current_health}/{max_health}" for _, name, current_health, max_health, _ in self.team_data])
+        self.hero_health_label.configure(text=health_text if health_text else "No heroes in team")
 
         self.enemyhealthlabels = []
 
@@ -2385,11 +2443,11 @@ class Battles(BaseApp):
                                                fg_color="#96c4df", text_color="#333333",
                                                font=("Helvetica", 15))
         self.damagedisplaylabel.pack(pady=10)
-        
+
         # Create frame for attack buttons
         self.attack_buttons_frame = ctk.CTkFrame(self.window, fg_color="#96c4df")
         self.attack_buttons_frame.pack(pady=10)
-        
+
         # Create attack buttons for each enemy
         self.attack_buttons = []
         for i in range(len(self.enemies)):
@@ -2402,7 +2460,7 @@ class Battles(BaseApp):
                                command=lambda x=i: self.attack_enemy(x))
             btn.pack(pady=5)
             self.attack_buttons.append(btn)
-        
+
         # Start damage calculation update
         self.updatedamagedisplay()
 
@@ -2452,37 +2510,37 @@ class Battles(BaseApp):
         try:
             conn = sqlite3.connect('user_login.db')
             cursor = conn.cursor()
-            
+
             # Get hero's current strength and level
             cursor.execute('SELECT strength, level FROM hero_inventory WHERE user_id = ? AND equipped = 1', (self.userid,))
             hero_data = cursor.fetchone()
             hero_strength = int(hero_data[0]) if hero_data else 5
             hero_level = int(hero_data[1]) if hero_data else 1
-            
+
             # Get weapon's damage
             cursor.execute('SELECT damage FROM weapon_inventory WHERE user_id = ? AND equipped = 1', (self.userid,))
             weapon_data = cursor.fetchone()
             weapon_damage = int(weapon_data[0]) if weapon_data else 5
-            
+
             # Calculate scaled strength based on hero level
             scaled_strength = int(hero_strength * (1 + (hero_level * 0.1)))
-            
+
             # Calculate base damage
             base_damage = max(25, scaled_strength * weapon_damage)
-            
+
             # Calculate damage range (90%-120% of base)
             min_damage = int(base_damage * 0.9)
             max_damage = int(base_damage * 1.2)
-            
+
             # Display damage range with crit possibility
             self.damagedisplaylabel.configure(text=f"Attack Damage: {min_damage}-{max_damage} (x2 on crit)")
-            
+
         except Exception as e:
             self.damagedisplaylabel.configure(text="Error calculating damage")
         finally:
             if 'conn' in locals():
                 conn.close()
-            
+
         # Update every second
         self.window.after(1000, self.updatedamagedisplay)
 
@@ -2562,12 +2620,12 @@ class Battles(BaseApp):
     def attack_enemy(self, enemy_index):
         if enemy_index >= len(self.enemies):
             return
-            
+
         enemy = self.enemies[enemy_index]
         if enemy["health"] <= 0:
             messagebox.showinfo("Note", "This enemy is already defeated!")
             return
-            
+
         if self.userhealth <= 0:
             messagebox.showerror("Defeat", "You lost the battle. Try again!")
             self.window.destroy()
@@ -2575,7 +2633,7 @@ class Battles(BaseApp):
             return
 
         self.battle(enemy)
-        
+
         # Check if all enemies are defeated
         if all(e["health"] <= 0 for e in self.enemies):
             messagebox.showinfo("Victory!", "You have defeated all enemies!")
@@ -2600,6 +2658,39 @@ class Battles(BaseApp):
     def switch_character(self, hero_id):
         with sqlite3.connect('user_login.db') as conn:
             cursor = conn.cursor()
+            
+            # Save current hero's health
+            cursor.execute('''
+                UPDATE team_slots 
+                SET current_health = ?
+                WHERE user_id = ? AND hero_id = (
+                    SELECT hero_id FROM team_slots
+                    WHERE user_id = ?
+                    LIMIT 1
+                )
+            ''', (self.userhealth, self.userid, self.userid))
+            
+            # Get new character's stats and current health
+            cursor.execute('''
+                SELECT hi.health, hi.element, hi.level, pd.level as char_level, ts.current_health
+                FROM hero_inventory hi
+                JOIN player_data pd ON pd.user_id = hi.user_id
+                JOIN team_slots ts ON ts.hero_id = hi.id
+                WHERE hi.id = ? AND hi.user_id = ?
+            ''', (hero_id, self.userid,))
+            base_health, element, hero_level, char_level, current_health = cursor.fetchone()
+            
+            # Calculate max health
+            level = int(char_level) if char_level else 1
+            base_health = int(base_health) if base_health and base_health != 'None' else 100
+            element = element if element and element != "None" else "None"
+            max_health = calculatehealth(level, base_health, element)
+            
+            # Use current_health only if it's been set during this quest, otherwise use max_health
+            if current_health is None or current_health > max_health:
+                current_health = max_health
+            
+            # Update equipment status
             cursor.execute('''
                 UPDATE hero_inventory SET equipped = 0 
                 WHERE user_id = ? AND equipped = 1
@@ -2609,16 +2700,25 @@ class Battles(BaseApp):
                 WHERE id = ? AND user_id = ?
             ''', (hero_id, self.userid))
             conn.commit()
-        self.updatedamagedisplay()  # Refresh damage display with new character
+            
+            # Update battle health values
+            self.userhealth = int(current_health)
+            self.usermaxhealth = calculatehealth(
+                int(char_level) if char_level else 1,
+                int(base_health) if base_health and base_health != 'None' else 100,
+                element if element and element != "None" else "None"
+            )
+            self.updatehealthlabels()
+            self.updatedamagedisplay()
 
     def show_team_selection(self):
         team_window = ctk.CTkToplevel(self.window)
         team_window.title("Switch Character")
         team_window.geometry("400x300")
-        
+
         team_frame = ctk.CTkScrollableFrame(team_window, width=350, height=250)
         team_frame.pack(pady=10)
-        
+
         team_members = self.get_team_members()
         for member in team_members:
             hero_id, name, element, health, strength, rarity, level = member
@@ -2635,12 +2735,12 @@ class Battles(BaseApp):
         try:
             # Calculate damage using the centralized method
             userdamage = Database.calculate_damage(self.userid)
-            
+
             # Prevent extreme damage values
             userdamage = max(25, min(userdamage, enemy["max_health"] // 2))
-            
+
             print(f"Battle started. Enemy health: {enemy['health']}, Damage dealt: {userdamage}")
-            
+
             # Apply damage to enemy
             enemy["health"] -= userdamage
             if enemy["health"] <= 0:
@@ -2668,7 +2768,7 @@ class Battles(BaseApp):
                     return
 
             self.updatehealthlabels()
-            
+
         except Exception as e:
             print(f"Battle error: {e}")
             messagebox.showerror("Error", "Battle system error")
