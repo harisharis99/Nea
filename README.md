@@ -947,7 +947,7 @@ class Modmenu(BaseApp):
             if newgold < 0:
                 messagebox.showerror("Error", "Gold cannot be negative!")
                 return
-            
+
             # Limit gold to SQLite's maximum integer value
             max_gold = 9223372036854775807  # SQLite's maximum signed INTEGER value
             if newgold > max_gold:
@@ -1428,7 +1428,10 @@ class Inventory(BaseApp):
                 level_result = cursor.fetchone()
                 level = level_result[0] if level_result and level_result[0] is not None else 1
 
-                scaled_health = int(int(health) * (1 + (level * 0.1)))  # 10% increase per level
+                # Calculate health using the full formula with element bonuses
+                base_health = int(health) if health else 100
+                element = element if element else "None"
+                scaled_health = Database.calculatehealth(level, base_health, element)
                 scaled_strength = int(int(strength) * (1 + (level * 0.1)))  # 10% increase per level
                 info = f"{name} | Lvl {level} | HP: {scaled_health} | STR: {scaled_strength}"
                 label = ctk.CTkLabel(frame, text=info, text_color=color)
@@ -1970,108 +1973,7 @@ class Users(BaseApp):
             entry.pack(pady=5)
 
 
-class TeamManagement(BaseApp):
-    def __init__(self, main, user_id):
-        super().__init__(main, user_id, "Team Management", "800x600")
 
-        self.slots_frame = ctk.CTkFrame(self.window, fg_color="#96c4df")
-        self.slots_frame.pack(pady=20)
-
-        self.slots = []
-        self.current_heroes = []
-
-        # Create three team slots
-        for i in range(3):
-            slot_frame = ctk.CTkFrame(self.slots_frame, fg_color="white")
-            slot_frame.pack(pady=10, padx=20, side="left")
-
-            slot_label = ctk.CTkLabel(slot_frame, text=f"Slot {i + 1}", font=("Arial", 15))
-            slot_label.pack(pady=5)
-
-            hero_label = ctk.CTkLabel(slot_frame, text="Empty", font=("Arial", 15))
-            hero_label.pack(pady=5)
-
-            select_button = ctk.CTkButton(slot_frame, text="Select Hero",
-                                          command=lambda slot=i: self.select_hero(slot))
-            select_button.pack(pady=5)
-
-            self.slots.append({"frame": slot_frame, "label": hero_label})
-
-        self.load_team()
-
-        self.back = ctk.CTkButton(self.window, text="Return to Battle", fg_color="white",
-                                  hover_color="#a5cd9d", text_color="#333333", font=("Arial", 15),
-                                  command=self.backtobattle)
-        self.back.pack(pady=20)
-
-    def load_team(self):
-        with sqlite3.connect('user_login.db') as conn:
-            cursor = conn.cursor()
-            for i in range(3):
-                cursor.execute('''
-                    SELECT h.hero_name, h.rarity 
-                    FROM team_slots t
-                    JOIN hero_inventory h ON t.hero_id = h.id
-                    WHERE t.user_id = ? AND t.slot_number = ?
-                ''', (self.userid, i))
-                result = cursor.fetchone()
-                if result:
-                    hero_name, rarity = result
-                    self.slots[i]["label"].configure(text=hero_name, text_color=rarity)
-
-    def select_hero(self, slot):
-        selection_window = ctk.CTkToplevel(self.window)
-        selection_window.title(f"Select Hero for Slot {slot + 1}")
-        selection_window.geometry("400x600")
-
-        hero_frame = ctk.CTkScrollableFrame(selection_window, width=350, height=500)
-        hero_frame.pack(pady=20)
-
-        with sqlite3.connect('user_login.db') as conn:
-            cursor = conn.cursor()
-            cursor.execute('''
-                SELECT id, hero_name, rarity 
-                FROM hero_inventory 
-                WHERE user_id = ? AND id NOT IN 
-                    (SELECT hero_id FROM team_slots WHERE user_id = ?)
-            ''', (self.userid, self.userid))
-            heroes = cursor.fetchall()
-
-            for hero_id, name, rarity in heroes:
-                hero_button = ctk.CTkButton(hero_frame, text=name,
-                                            text_color=rarity,
-                                            command=lambda hid=hero_id, n=name, r=rarity:
-                                            self.assign_hero(slot, hid, n, r, selection_window))
-                hero_button.pack(pady=5)
-
-    def assign_hero(self, slot, hero_id, name, rarity, window):
-        with sqlite3.connect('user_login.db') as conn:
-            cursor = conn.cursor()
-            # Get hero's base health
-            cursor.execute('SELECT health FROM hero_inventory WHERE id = ?', (hero_id,))
-            base_health = cursor.fetchone()[0]
-            
-            cursor.execute('DELETE FROM team_slots WHERE user_id = ? AND slot_number = ?',
-                           (self.userid, slot))
-            cursor.execute('''
-                INSERT INTO team_slots (user_id, slot_number, hero_id, current_health) 
-                VALUES (?, ?, ?, ?)''', (self.userid, slot, hero_id, base_health))
-            conn.commit()
-
-        self.slots[slot]["label"].configure(text=f"{name} (HP: {base_health})", text_color=rarity)
-        window.destroy()
-
-    def backtobattle(self):
-        self.window.destroy()
-        self.window.master.deiconify()
-
-
-    def backtoentrance(self):
-        self.window.destroy()
-        if self.window.master:
-            self.window.master.destroy()
-        entrance = Entrance(None, None)
-        entrance.window.mainloop()
 
 
 class SiegeMenu(BaseApp):
@@ -2242,18 +2144,6 @@ class Quest(BaseApp):
                 if not conn:
                     raise ConnectionError("Failed to establish database connection")
                 cursor = conn.cursor()
-
-                # Reset all team members' health to their max HP
-                cursor.execute('''
-                    UPDATE team_slots 
-                    SET current_health = (
-                        SELECT hi.health 
-                        FROM hero_inventory hi 
-                        WHERE hi.id = team_slots.hero_id
-                    )
-                    WHERE user_id = ?
-                ''', (self.userid,))
-                conn.commit()
             except sqlite3.Error as e:
                 raise ConnectionError(f"Database connection error: {str(e)}")
 
@@ -2387,46 +2277,57 @@ class Battles(BaseApp):
         self.enemies = enemies
         self.currentenemy = 0
         self.questwindow = questwindow
-        self.current_hero_slot = 0
         self.userhealth = userhealth
         self.usermaxhealth = userhealth
         
-        # Add user health label
-        self.userhealthlabel = ctk.CTkLabel(self.window, 
-            text=f"Your Health: {self.userhealth}/{self.usermaxhealth}", 
-            fg_color="#96c4df", 
-            text_color="#333333",
-            font=("Helvetica", 15))
-        self.userhealthlabel.pack(pady=10)
-        
-        # Create frame for hero health bars
+        # Initialize team data
+        self.current_hero_slot = 1  # Default to first slot
+        self.hero_health_labels = []
         self.hero_health_frame = ctk.CTkFrame(self.window, fg_color="#96c4df")
         self.hero_health_frame.pack(pady=10)
         
-        self.hero_health_label = ctk.CTkLabel(
-            self.hero_health_frame,
-            text="Loading hero health...",
-            fg_color="#96c4df",
-            text_color="#333333",
-            font=("Helvetica", 15)
-        )
-        self.hero_health_label.pack(pady=5)
-        
-        # Load team members and their health
-        with sqlite3.connect('user_login.db') as conn:
-            cursor = conn.cursor()
-            cursor.execute('''
-                SELECT ts.slot_number, h.hero_name, ts.current_health, h.health, h.rarity
-                FROM team_slots ts
-                JOIN hero_inventory h ON ts.hero_id = h.id
-                WHERE ts.user_id = ?
-                ORDER BY ts.slot_number
-            ''', (self.userid,))
-            self.team_data = cursor.fetchall()
+        # Get team data from database
+        try:
+            with sqlite3.connect('user_login.db') as conn:
+                cursor = conn.cursor()
+                cursor.execute('''
+                    SELECT ts.slot_number, hi.hero_name, ts.current_health, hi.health, 
+                           hi.rarity, hi.element, hi.level
+                    FROM team_slots ts
+                    JOIN hero_inventory hi ON ts.hero_id = hi.id
+                    WHERE ts.user_id = ?
+                    ORDER BY ts.slot_number
+                ''', (self.userid,))
+                self.team_data = cursor.fetchall()
+        except sqlite3.Error as e:
+            print(f"Database error: {e}")
+            self.team_data = []
+
+        # Create health label
+        self.userhealthlabel = ctk.CTkLabel(self.window, text=f"Your Health: {self.userhealth}/{self.usermaxhealth}",
+                                            fg_color="#96c4df", text_color="#333333", font=("Helvetica", 15))
+        self.userhealthlabel.pack(pady=10)
             
-        # Update health display
-        health_text = " | ".join([f"{name}: {current_health}/{max_health}" for _, name, current_health, max_health, _ in self.team_data])
-        self.hero_health_label.configure(text=health_text if health_text else "No heroes in team")
+            # Create health labels for each hero
+        for slot, name, current_health, base_health, rarity, element, level in self.team_data:
+            # Calculate max health using the formula
+            max_health = Database.calculatehealth(level, base_health, element)
+            current_health = current_health if current_health else max_health
+            
+            # Store the first hero's health as current user health
+            if slot == self.current_hero_slot:
+                self.userhealth = current_health
+                self.usermaxhealth = max_health
+            
+            label = ctk.CTkLabel(
+                self.hero_health_frame,
+                text=f"{name}: {current_health}",
+                fg_color="#96c4df",
+                text_color=rarity,
+                font=("Helvetica", 15)
+            )
+            label.pack(pady=5)
+            self.hero_health_labels.append((slot, label, max_health))
 
         self.enemyhealthlabels = []
 
@@ -2464,23 +2365,9 @@ class Battles(BaseApp):
         # Start damage calculation update
         self.updatedamagedisplay()
 
-        self.returnbutton = ctk.CTkButton(self.window, text="Return to Quest", fg_color="white", hover_color="#a5cd9d",
-                                          text_color="#333333", font=("Helvetica", 20), command=self.returntoquest)
-        self.returnbutton.pack(pady=20)
-
         self.abilitycooldown = 30  # 30 second cooldown
         self.abilityready = True
         self.currentcooldown = 0
-
-        # Add ability button and timer label
-        self.abilitybutton = ctk.CTkButton(self.window, text="Use Ability", fg_color="purple", hover_color="#9932CC",
-                                           text_color="white", font=("Helvetica", 20), command=self.useability,
-                                           state="normal")
-        self.abilitybutton.pack(pady=10)
-
-        self.timerlabel = ctk.CTkLabel(self.window, text="Ability Ready!", fg_color="#96c4df", text_color="#333333",
-                                       font=("Helvetica", 15))
-        self.timerlabel.pack(pady=5)
 
         # Add switch character button
         self.switch_char_button = ctk.CTkButton(
@@ -2494,8 +2381,26 @@ class Battles(BaseApp):
         )
         self.switch_char_button.pack(pady=10)
 
+        # Add ability button and timer label
+        self.abilitybutton = ctk.CTkButton(self.window, text="Use Ability", fg_color="purple", hover_color="#9932CC",
+                                           text_color="white", font=("Helvetica", 20), command=self.useability,
+                                           state="normal")
+        self.abilitybutton.pack(pady=10)
+
+        self.timerlabel = ctk.CTkLabel(self.window, text="Ability Ready!", fg_color="#96c4df", text_color="#333333",
+                                       font=("Helvetica", 15))
+        self.timerlabel.pack(pady=5)
+
         # Start the timer update
         self.updatetimer()
+
+        # Update the existing user health label with current values
+        self.userhealthlabel.configure(text=f"Your Health: {self.userhealth}/{self.usermaxhealth}")
+
+        # Add return button at the bottom
+        self.returnbutton = ctk.CTkButton(self.window, text="Return to Quest", fg_color="white", hover_color="#a5cd9d",
+                                          text_color="#333333", font=("Helvetica", 20), command=self.returntoquest)
+        self.returnbutton.pack(pady=20, side="bottom")
 
     def updatehealthlabels(self):
         self.userhealthlabel.configure(text=f"Your Health: {self.userhealth}/{self.usermaxhealth}")
@@ -2658,56 +2563,57 @@ class Battles(BaseApp):
     def switch_character(self, hero_id):
         with sqlite3.connect('user_login.db') as conn:
             cursor = conn.cursor()
-            
+
             # Save current hero's health
             cursor.execute('''
                 UPDATE team_slots 
                 SET current_health = ?
-                WHERE user_id = ? AND hero_id = (
-                    SELECT hero_id FROM team_slots
-                    WHERE user_id = ?
-                    LIMIT 1
-                )
-            ''', (self.userhealth, self.userid, self.userid))
-            
-            # Get new character's stats and current health
+                WHERE user_id = ? AND slot_number = ?
+            ''', (self.userhealth, self.userid, self.current_hero_slot))
+
+            # Get new character's stats
             cursor.execute('''
-                SELECT hi.health, hi.element, hi.level, pd.level as char_level, ts.current_health
+                SELECT hi.health, hi.element, hi.level, ts.slot_number, ts.current_health, hi.hero_name, hi.rarity
                 FROM hero_inventory hi
-                JOIN player_data pd ON pd.user_id = hi.user_id
                 JOIN team_slots ts ON ts.hero_id = hi.id
                 WHERE hi.id = ? AND hi.user_id = ?
             ''', (hero_id, self.userid,))
-            base_health, element, hero_level, char_level, current_health = cursor.fetchone()
+            result = cursor.fetchone()
+            base_health, element, hero_level, slot_number, stored_health, hero_name, rarity = result
             
-            # Calculate max health
-            level = int(char_level) if char_level else 1
+            # Calculate proper health values
+            hero_level = int(hero_level) if hero_level else 1
             base_health = int(base_health) if base_health and base_health != 'None' else 100
             element = element if element and element != "None" else "None"
-            max_health = calculatehealth(level, base_health, element)
-            
-            # Use current_health only if it's been set during this quest, otherwise use max_health
-            if current_health is None or current_health > max_health:
-                current_health = max_health
-            
+            max_health = Database.calculatehealth(hero_level, base_health, element)
+            current_health = int(stored_health) if stored_health else max_health
+
+            # Update current hero slot and health values
+            self.current_hero_slot = slot_number
+            self.userhealth = current_health
+            self.usermaxhealth = max_health
+
             # Update equipment status
-            cursor.execute('''
-                UPDATE hero_inventory SET equipped = 0 
-                WHERE user_id = ? AND equipped = 1
-            ''', (self.userid,))
-            cursor.execute('''
-                UPDATE hero_inventory SET equipped = 1 
-                WHERE id = ? AND user_id = ?
-            ''', (hero_id, self.userid))
+            cursor.execute('UPDATE hero_inventory SET equipped = 0 WHERE user_id = ? AND equipped = 1', (self.userid,))
+            cursor.execute('UPDATE hero_inventory SET equipped = 1 WHERE id = ? AND user_id = ?', (hero_id, self.userid))
+
             conn.commit()
-            
-            # Update battle health values
-            self.userhealth = int(current_health)
-            self.usermaxhealth = calculatehealth(
-                int(char_level) if char_level else 1,
-                int(base_health) if base_health and base_health != 'None' else 100,
-                element if element and element != "None" else "None"
-            )
+
+            # Update all hero health labels
+            for slot, label, max_health in self.hero_health_labels:
+                cursor.execute('''
+                    SELECT h.hero_name, ts.current_health
+                    FROM team_slots ts
+                    JOIN hero_inventory h ON ts.hero_id = h.id
+                    WHERE ts.user_id = ? AND ts.slot_number = ?
+                ''', (self.userid, slot))
+                hero_data = cursor.fetchone()
+                if hero_data:
+                    name, curr_health = hero_data
+                    curr_health = curr_health if curr_health else max_health
+                    label.configure(text=f"{name}: {curr_health}/{max_health}")
+
+            # Update enemy health labels and damage display
             self.updatehealthlabels()
             self.updatedamagedisplay()
 
